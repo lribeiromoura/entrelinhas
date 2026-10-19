@@ -498,3 +498,17 @@ footer {
   margin: 5px 0;
   white-space: pre-wrap;
 }
+
+.record-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.record-controls form {
+  flex-basis: 100%;
+}
+.photos .record-controls button {
+  padding: 8px;
+  font-size: 12px;
+}

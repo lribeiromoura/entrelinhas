@@ -9,3 +9,10 @@ CREATE INDEX IF NOT EXISTS ideas_owner_idx ON ideas(owner,book);
 CREATE INDEX IF NOT EXISTS questions_due_idx ON questions(owner,due);
 CREATE INDEX IF NOT EXISTS photos_owner_idx ON photos(owner,book);
 CREATE INDEX IF NOT EXISTS connections_owner_idx ON connections(owner);
+
+-- Recoverable trash: additive migrations preserve existing libraries.
+ALTER TABLE books ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE ideas ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE photos ADD COLUMN IF NOT EXISTS deleted_at BIGINT;
+ALTER TABLE connections ADD COLUMN IF NOT EXISTS deleted_at BIGINT;

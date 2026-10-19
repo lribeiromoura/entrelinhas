@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createAuthClient } from "better-auth/react";
-import Dictation from "./components/Dictation";
+import RecordControls from "./components/RecordControls";
+import SummaryEditor from "./components/SummaryEditor";
+import { clearOwnerDrafts, hasOwnerDrafts } from "../lib/summary-draft";
 import { optimizePhoto } from "../lib/optimize-photo";
-import { appendDictation } from "../lib/dictation";
 const auth = createAuthClient();
 type Book = {
   id: string;
@@ -28,6 +29,7 @@ type Data = {
   questions: Question[];
   connections: { id: string; source: string; target: string }[];
   photos: { id: string; book: string }[];
+  trash: { id: string; kind: string; title: string; deleted_at: number }[];
 };
 const empty: Data = {
   books: [],
@@ -35,6 +37,7 @@ const empty: Data = {
   questions: [],
   connections: [],
   photos: [],
+  trash: [],
 };
 function BookCover({ book, index = 0 }: { book: Book; index?: number }) {
   const src = book.cover_photo
@@ -73,8 +76,11 @@ export default function Home() {
   const [data, setData] = useState<Data>(empty);
   const [view, setView] = useState("library");
   const [selected, setSelected] = useState("");
-  const [summary, setSummary] = useState("");
-  const [dictating, setDictating] = useState(false);
+  const [draftAtRisk, setDraftAtRisk] = useState(false);
+  function navigate(next: string) {
+    if (draftAtRisk && !window.confirm("O rascunho não pôde ser guardado. Sair desta tela pode perder seu texto. Deseja sair mesmo assim?")) return;
+    setView(next);
+  }
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -106,6 +112,20 @@ export default function Home() {
     if (session) refresh().catch((e) => setError(e.message));
     else setData(empty);
   }, [session]);
+  useEffect(() => {
+    const owner = session?.user.id;
+    if (!owner) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      try {
+        if (hasOwnerDrafts(sessionStorage, owner)) {
+          event.preventDefault();
+          event.returnValue = "";
+        }
+      } catch {} // The active editor also warns if storage is unavailable.
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [session?.user.id]);
   async function save(body: object | FormData) {
     setBusy(true);
     setError("");
@@ -154,7 +174,6 @@ export default function Home() {
   const q = queue[0];
   function open(b: Book) {
     setSelected(b.id);
-    setSummary(b.summary);
     setView("book");
     setNotice("");
     setError("");
@@ -177,10 +196,15 @@ export default function Home() {
         {session && (
           <button
             className="subtle"
+            disabled={busy}
             onClick={async () => {
-              await auth.signOut();
+              let pendingDraft = draftAtRisk;
+              try { pendingDraft ||= hasOwnerDrafts(sessionStorage, session.user.id); } catch { pendingDraft = true; }
+              if (pendingDraft && !window.confirm("Sair da conta? Os rascunhos desta aba serão apagados. Salve os resumos que deseja manter antes de sair.")) return;
+              const result = await auth.signOut();
+              if (result.error) { setError("Não foi possível sair. Tente novamente."); return; }
+              try { clearOwnerDrafts(sessionStorage, session.user.id); } catch {}
               setSelected("");
-              setSummary("");
               setView("library");
             }}
           >
@@ -190,8 +214,7 @@ export default function Home() {
       </header>
       {offline && (
         <aside className="offline" role="status">
-          Você está sem conexão. Reconecte para carregar e salvar. O texto
-          aberto permanece nesta tela; não feche a página.
+          Você está sem conexão. Reconecte para carregar e salvar. Rascunhos de resumo ficam apenas nesta aba até você salvar; mantenha a aba aberta.
         </aside>
       )}
       <main>
@@ -302,13 +325,14 @@ export default function Home() {
               {[
                 ["library", "Biblioteca"],
                 ["map", "Mapa de ideias"],
+                ["trash", `Lixeira · ${data.trash.length}`],
                 ["review", `Revisões · ${due.length}`],
               ].map(([id, label]) => (
                 <button
                   key={id}
                   className={view === id ? "active" : "subtle"}
                   onClick={() => {
-                    setView(id);
+                    navigate(id);
                     setNotice("");
                     setError("");
                     setRevealed(false);
@@ -439,48 +463,27 @@ export default function Home() {
             )}
             {view === "book" && book && (
               <>
-                <button className="subtle" onClick={() => setView("library")}>
+                <button className="subtle" onClick={() => navigate("library")}>
                   ← Voltar à estante
                 </button>
                 <p className="eyebrow">CADERNO DE LEITURA</p>
                 <h1>{book.title}</h1>
                 <p>{book.author}</p>
+                <RecordControls kind="book" id={book.id} title={book.title} busy={busy} save={save}
+                  onRemoved={() => setView("library")} fields={[
+                    { name: "title", label: "Título do livro", value: book.title },
+                    { name: "author", label: "Autor", value: book.author },
+                  ]} />
                 <div className="columns">
                   <section>
-                    <div className="panel">
-                      <h2>O que ficou da leitura</h2>
-                      <label>
-                        Resumo e transcrição
-                        <textarea
-                          rows={9}
-                          value={summary}
-                          onChange={(e) => setSummary(e.target.value)}
-                          placeholder="Escreva com suas palavras ou cole uma transcrição…"
-                        />
-                      </label>
-                      <Dictation
-                        key={book.id}
-                        disabled={busy || offline}
-                        onText={(text) => {
-                          setSummary((previous) =>
-                            appendDictation(previous, text),
-                          );
-                          setNotice("");
-                        }}
-                        onActiveChange={setDictating}
-                      />
-                      <button
-                        disabled={busy || dictating}
-                        onClick={() =>
-                          save({ action: "summary", book: selected, summary })
-                        }
-                      >
-                        Salvar resumo
-                      </button>
-                    </div>
+                    <SummaryEditor key={session.user.id + ":" + book.id}
+                      owner={session.user.id} book={book.id} initial={book.summary}
+                      busy={busy} offline={offline} onStorageRisk={setDraftAtRisk}
+                      save={(summary) => save({ action: "summary", book: book.id, summary })} />
                     <div className="panel cover-editor">
                       <h2>Capa do livro</h2>
                       <BookCover book={book} />
+                      {book.cover_photo && <RecordControls kind="photo" id={book.cover_photo} title="Imagem da capa" busy={busy} save={save} />}
                       <p>
                         Busque uma capa ou envie sua própria imagem. A edição
                         encontrada pode ser diferente da sua.
@@ -569,8 +572,7 @@ export default function Home() {
                         {data.photos
                           .filter((p) => p.book === selected)
                           .map((p) => (
-                            <a
-                              key={p.id}
+                            <div key={p.id}><a
                               href={"/api/photos/" + p.id}
                               target="_blank"
                               rel="noreferrer"
@@ -579,7 +581,7 @@ export default function Home() {
                                 src={"/api/photos/" + p.id}
                                 alt="Foto de anotação do livro"
                               />
-                            </a>
+                            </a><RecordControls kind="photo" id={p.id} title="Foto de anotação" busy={busy} save={save} /></div>
                           ))}
                       </div>
                     </div>
@@ -593,6 +595,10 @@ export default function Home() {
                           <article key={i.id}>
                             <h3>{i.title}</h3>
                             <p className="pre">{i.description}</p>
+                            <RecordControls kind="idea" id={i.id} title={i.title} busy={busy} save={save} fields={[
+                              { name: "title", label: "Título da ideia", value: i.title },
+                              { name: "description", label: "Descrição", value: i.description, multiline: true },
+                            ]} />
                           </article>
                         ))}
                       <form onSubmit={(e) => form(e, "idea")}>
@@ -616,6 +622,14 @@ export default function Home() {
                         }{" "}
                         perguntas · primeira revisão em 1 dia
                       </p>
+                      {data.questions.filter(question => question.book === selected).map(question => <article key={question.id}>
+                        <h3>{question.prompt}</h3>
+                        <details><summary>Consultar resposta</summary><p className="pre">{question.answer}</p></details>
+                        <RecordControls kind="question" id={question.id} title={question.prompt} busy={busy} save={save} fields={[
+                          { name: "prompt", label: "Pergunta", value: question.prompt, multiline: true },
+                          { name: "answer", label: "Resposta", value: question.answer, multiline: true },
+                        ]} />
+                      </article>)}
                       <form onSubmit={(e) => form(e, "question")}>
                         <label>
                           Pergunta
@@ -728,10 +742,11 @@ export default function Home() {
                       <h2>Conexões</h2>
                       {data.connections.length ? (
                         data.connections.map((c) => (
-                          <p key={c.id}>
+                          <div key={c.id}>
                             {data.ideas.find((i) => i.id === c.source)?.title} ↔{" "}
                             {data.ideas.find((i) => i.id === c.target)?.title}
-                          </p>
+                            <RecordControls kind="connection" id={c.id} title="Conexão" busy={busy} save={save} />
+                          </div>
                         ))
                       ) : (
                         <p>
@@ -744,6 +759,17 @@ export default function Home() {
                 )}
               </>
             )}
+            {view === "trash" && <section className="panel">
+              <h1>Lixeira</h1>
+              <p>Nada é apagado definitivamente nesta etapa. Restaurar um livro recupera seu conteúdo e mantém as datas de revisão. Itens removidos separadamente continuam na lixeira.</p>
+              <p>Para restaurar uma anotação ou conexão, restaure primeiro o livro e as ideias relacionados.</p>
+              {!data.trash.length && <p>A lixeira está vazia.</p>}
+              {[...data.trash].sort((a, b) => b.deleted_at - a.deleted_at).map(item => <article key={item.kind + item.id}>
+                <h3>{item.title}</h3>
+                <small>{{ book: "Livro", idea: "Ideia", question: "Pergunta", photo: "Foto", connection: "Conexão" }[item.kind] || item.kind} · {new Date(item.deleted_at).toLocaleDateString("pt-BR")}</small>
+                <button disabled={busy} onClick={() => save({ action: "restore", kind: item.kind, id: item.id })}>Restaurar</button>
+              </article>)}
+            </section>}
             {view === "review" && (
               <>
                 <p className="eyebrow">UM POUCO A CADA DIA</p>

@@ -210,6 +210,62 @@ try {
     "note.png",
   );
   await post(b, foreign, 400);
+  // Editing and trash preserve ownership, children, photos, and review schedules.
+  const idea = d.ideas.find(i => i.book === one.id);
+  const connection = d.connections[0];
+  const photoId = d.photos[0].id;
+  const coverId = d.books.find(book => book.id === one.id).cover_photo;
+  const scheduled = d.questions[0];
+  for (const kind of ["book", "idea", "question", "photo", "connection"]) {
+    const id = { book: one.id, idea: idea.id, question: q.id, photo: photoId, connection: connection.id }[kind];
+    await post(b, { action: "trash", kind, id }, 400);
+    await post(b, { action: "restore", kind, id }, 400);
+    await post(b, { action: "edit", kind, id, title: "Invasão", author: "x", description: "x", prompt: "x", answer: "x" }, 400);
+  }
+  await post(a, { action: "edit", kind: "book", id: one.id, title: "Livro corrigido", author: "Autora corrigida" });
+  await post(a, { action: "edit", kind: "idea", id: idea.id, title: "Ideia corrigida", description: "Descrição corrigida" });
+  await post(a, { action: "edit", kind: "question", id: q.id, prompt: "Pergunta corrigida", answer: "Resposta corrigida" });
+  await post(a, { action: "edit", kind: "book", id: one.id, title: " ", author: "x" }, 400);
+  await post(a, { action: "trash", kind: "photo", id: coverId });
+  assert.equal((await get(a)).books.find(book => book.id === one.id).cover_photo, null);
+  assert.equal((await fetch(coverUrl, { headers: { cookie: a } })).status, 404);
+  await post(a, { action: "restore", kind: "photo", id: coverId });
+  assert.equal((await get(a)).books.find(book => book.id === one.id).cover_photo, coverId);
+  await post(a, { action: "trash", kind: "question", id: q.id });
+  await post(a, { action: "review", id: q.id, rating: "good" }, 400);
+  await post(a, { action: "trash", kind: "idea", id: idea.id });
+  assert.equal((await get(a)).connections.length, 0);
+  await post(a, { action: "trash", kind: "connection", id: connection.id });
+  await post(a, { action: "restore", kind: "connection", id: connection.id }, 400);
+  await post(a, { action: "trash", kind: "book", id: one.id });
+  let hidden = await get(a);
+  assert.equal(hidden.books.length, 1);
+  assert.equal(hidden.photos.length, 0);
+  assert.equal((await fetch(base + photo, { headers: { cookie: a } })).status, 404);
+  assert.equal((await fetch(coverUrl, { headers: { cookie: a } })).status, 404);
+  await post(a, { action: "summary", book: one.id, summary: "oculto" }, 400);
+  await post(a, { action: "restore", kind: "question", id: q.id }, 400);
+  await post(a, { action: "restore", kind: "book", id: one.id });
+  hidden = await get(a);
+  assert.equal(hidden.questions.length, 0, "Restaurar livro não restaura pergunta removida separadamente");
+  assert.equal(hidden.ideas.some(i => i.id === idea.id), false);
+  assert.equal((await fetch(base + photo, { headers: { cookie: a } })).status, 200);
+  await post(a, { action: "restore", kind: "question", id: q.id });
+  await post(a, { action: "restore", kind: "idea", id: idea.id });
+  await post(a, { action: "restore", kind: "connection", id: connection.id });
+  await post(a, { action: "trash", kind: "connection", id: connection.id });
+  await post(a, { action: "connection", source: idea.id, target: d.ideas.find(i => i.id !== idea.id).id });
+  await post(a, { action: "trash", kind: "photo", id: photoId });
+  assert.equal((await fetch(base + photo, { headers: { cookie: a } })).status, 404);
+  await post(a, { action: "restore", kind: "photo", id: photoId });
+  const restored = await get(a);
+  assert.equal(restored.trash.length, 0);
+  assert.equal(restored.connections.length, 1);
+  assert.equal(restored.questions[0].stage, scheduled.stage);
+  assert.equal(restored.questions[0].due, scheduled.due);
+  assert.equal(restored.questions[0].answer, "Resposta corrigida");
+  assert.equal(restored.books.find(book => book.id === one.id).title, "Livro corrigido");
+  assert.deepEqual((await get(b)).trash, []);
   const csrf = await fetch(base + "/api/data", {
     method: "POST",
     headers: {
@@ -246,12 +302,13 @@ try {
   const manifest = await (await fetch(base + "/manifest.webmanifest")).json();
   assert.equal(manifest.display, "standalone");
   console.log(
-    "PASS: cadastro, login, logout, livros, resumo, fotos, ideias, conexões, revisões, CSRF, isolamento de duas contas e manifesto.",
+    "PASS: cadastro, login, logout, livros, resumo, fotos, ideias, conexões, revisões, edição, lixeira e restauração com fotos privadas e agenda preservada, CSRF, isolamento de duas contas e manifesto.",
   );
 } finally {
-  if (server) {
+  if (server && server.exitCode === null && server.signalCode === null) {
+    const exited = new Promise((resolve) => server.once("exit", resolve));
     server.kill("SIGTERM");
-    await new Promise((r) => server.once("exit", r));
+    await exited;
   }
   rmSync(dir, { recursive: true, force: true });
 }

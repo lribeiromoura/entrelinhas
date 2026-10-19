@@ -15,7 +15,7 @@ export async function GET(
       bytes: Buffer | null;
       storage_path: string | null;
     }>(
-      "SELECT mime,bytes,storage_path FROM photos WHERE id=? AND owner=?",
+      "SELECT p.mime,p.bytes,p.storage_path FROM photos p JOIN books b ON b.id=p.book AND b.owner=p.owner WHERE p.id=? AND p.owner=? AND p.deleted_at IS NULL AND b.deleted_at IS NULL",
       id,
       s.user.id,
     );

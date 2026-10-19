@@ -67,3 +67,10 @@ Aplicação local em Next.js e TypeScript para uma biblioteca pessoal privada po
 - Vercel sem configuração completa não pode cair em armazenamento local efêmero. A publicação só é considerada concluída após login, salvamento e leitura verificados no endereço público.
 - Fotos novas são decodificadas e otimizadas para JPEG, com orientação aplicada, no máximo 2400 pixels e sem EXIF. Entrada até 8 MB; envio até 3 MB para caber nos limites da hospedagem. Arquivos antigos locais não são reescritos.
 - Testes HTTP usam banco isolado e desativam explicitamente credenciais cloud herdadas. A estrutura PostgreSQL é testada com um motor local; isso não substitui o teste final na instância real.
+
+## Incremento: rascunhos, edição e lixeira
+- Resumos mantêm rascunho por conta e livro no sessionStorage da aba. Recuperam texto vazio e alterações após navegação/recarregamento. A interface distingue rascunho de salvamento confirmado, informa falhas de armazenamento e alerta ao sair com rascunhos pendentes. Sair da conta pede confirmação e limpa os rascunhos da conta.
+- Salvar não apaga texto digitado durante a requisição; falhas preservam rascunho. Rascunho cuja base difere do resumo no servidor recebe aviso de conflito. Não há sincronização offline nem proteção garantida contra encerramento do navegador pelo sistema.
+- Edição de título/autor do livro, título/descrição de ideia e pergunta/resposta, sem alterar agenda.
+- Lixeira restaurável para livros, ideias, perguntas, fotos e conexões. Nenhum descarte definitivo. Livros removidos ocultam filhos; ideias removidas ocultam conexões. Restauração não ressuscita itens removidos individualmente. Fotos ocultas retornam 404 mesmo ao proprietário.
+- Migrações aditivas deleted_at em SQLite e PostgreSQL; filtros e mutações mantêm isolamento por proprietário. Buckets e tabelas permanecem privados.

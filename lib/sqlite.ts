@@ -20,6 +20,11 @@ sqlite
       if (!columns.some((c) => c.name === name))
         sqlite.exec(`ALTER TABLE books ADD COLUMN ${name} ${type}`);
     }
+    for (const table of ["books", "ideas", "questions", "photos", "connections"]) {
+      const fields = sqlite.pragma(`table_info(${table})`) as { name: string }[];
+      if (!fields.some((field) => field.name === "deleted_at"))
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at INTEGER`);
+    }
     const photos = sqlite.pragma("table_info(photos)") as { name: string }[];
     if (!photos.some((c) => c.name === "storage_path"))
       sqlite.exec("ALTER TABLE photos ADD COLUMN storage_path TEXT");

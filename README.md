@@ -102,3 +102,8 @@ A configuração incompleta na Vercel falha de forma explícita; o aplicativo n�
 As imagens são baixadas pelo servidor somente após conferir a sessão e o proprietário. Não há URL pública de fotos nem cache compartilhado de conteúdo privado. Uploads que falham na vinculação ao banco tentam limpar o objeto enviado.
 
 Referências: [conexões Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres), [integração Vercel](https://supabase.com/docs/guides/integrations/vercel-marketplace), [limite de requisições Vercel](https://vercel.com/docs/functions/limitations).
+
+### Rascunhos e lixeira
+O resumo guarda rascunho automaticamente na sessão da aba, separado por conta e livro. Volte ao livro para recuperar; clique em **Salvar resumo** para persistir no servidor. Fechar a aba pode apagar rascunhos. O navegador avisa antes de sair, mas esse aviso pode não aparecer quando o sistema encerra o aplicativo. Sair da conta limpa os rascunhos após confirmação.
+
+Use **Editar** para corrigir livros, ideias e perguntas. **Mover para lixeira** oculta registros sem excluí-los definitivamente. A aba **Lixeira** permite restaurar. Restaure primeiro livros e ideias necessários; a agenda das revisões é mantida. Itens removidos separadamente precisam ser restaurados separadamente. Fotos de itens ocultos deixam de ser acessíveis. O deploy executa migrações aditivas compatíveis com os dados existentes.

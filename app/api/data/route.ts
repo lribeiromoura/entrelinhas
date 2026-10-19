@@ -1,3 +1,4 @@
+import { changeRecord } from "../../../lib/records";
 import { auth } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { requireBook, readLibrary } from "../../../lib/library";
@@ -96,7 +97,9 @@ export async function POST(req: Request) {
           throw Error("Preencha os campos corretamente.");
         return b[key].trim();
       };
-      if (b.action === "book")
+      if (["edit", "trash", "restore"].includes(b.action))
+        await changeRecord(db, owner, b);
+      else if (b.action === "book")
         await db.run(
           "INSERT INTO books(id,owner,title,author,summary,cover_id) VALUES(?,?,?,?,?,?)",
           crypto.randomUUID(),
@@ -173,7 +176,7 @@ export async function POST(req: Request) {
           if (
             typeof id !== "string" ||
             !(await db.get(
-              "SELECT id FROM ideas WHERE id=? AND owner=?",
+              "SELECT i.id FROM ideas i JOIN books b ON b.id=i.book AND b.owner=i.owner WHERE i.id=? AND i.owner=? AND i.deleted_at IS NULL AND b.deleted_at IS NULL",
               id,
               owner,
             ))
@@ -181,7 +184,12 @@ export async function POST(req: Request) {
             throw Error("Ideia não encontrada.");
         }
         const [a, c] = [b.source, b.target].sort();
-        await db.run(
+        const existing = await db.get<{ id: string; deleted_at: number | null }>(
+          "SELECT id,deleted_at FROM connections WHERE owner=? AND source=? AND target=?", owner, a, c);
+        if (existing) {
+          if (existing.deleted_at === null) throw Error("Esta conexão já existe.");
+          await changeRecord(db, owner, { action: "restore", kind: "connection", id: existing.id });
+        } else await db.run(
           "INSERT INTO connections(id,owner,source,target) VALUES(?,?,?,?)",
           crypto.randomUUID(),
           owner,
@@ -202,7 +210,7 @@ export async function POST(req: Request) {
         );
       } else if (b.action === "review") {
         const q = await db.get<{ stage: number }>(
-          "SELECT stage FROM questions WHERE id=? AND owner=?",
+          "SELECT q.stage FROM questions q JOIN books b ON b.id=q.book AND b.owner=q.owner WHERE q.id=? AND q.owner=? AND q.deleted_at IS NULL AND b.deleted_at IS NULL",
           b.id,
           owner,
         );
