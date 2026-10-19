@@ -8,6 +8,14 @@ const base = "http://localhost:3101";
 const env = {
   ...process.env,
   DATA_DIR: dir,
+  DATABASE_URL: "",
+  POSTGRES_URL: "",
+  DATABASE_MIGRATION_URL: "",
+  SUPABASE_URL: "",
+  SUPABASE_SERVICE_ROLE_KEY: "",
+  SUPABASE_SECRET_KEY: "",
+  VERCEL: "",
+  BETTER_AUTH_SECRET: "somente-testes-isolados-sem-acesso-ao-banco-real-2026",
   BETTER_AUTH_URL: base,
   NEXT_TELEMETRY_DISABLED: "1",
 };
@@ -79,11 +87,16 @@ try {
     assert.equal(r.status, status, await r.text());
   }
   assert.equal((await fetch(base + "/api/data")).status, 401);
-  await post(a, { action: "book", title: "Livro A", author: "Autora",cover_id:12345 });
+  await post(a, {
+    action: "book",
+    title: "Livro A",
+    author: "Autora",
+    cover_id: 12345,
+  });
   await post(a, { action: "book", title: "Livro B", author: "Autor" });
   let d = await get(a);
   const [one, two] = d.books;
-  assert.equal(one.cover_id,12345);
+  assert.equal(one.cover_id, 12345);
   await post(a, {
     action: "summary",
     book: one.id,
@@ -152,14 +165,23 @@ try {
   assert.equal(d.photos.length, 1);
   assert.equal(d.books[0].summary, "Transcrição e resumo persistidos.");
   assert.equal(d.connections.length, 1);
-  const cover=new FormData();cover.set('book',one.id);cover.set('kind','cover');cover.set('photo',new Blob([readFileSync('public/icon-192.png')],{type:'image/png'}),'cover.png');
-  await post(a,cover);
-  d=await get(a);assert.ok(d.books[0].cover_photo);assert.equal(d.photos.length,1);
-  const coverUrl=base+'/api/photos/'+d.books[0].cover_photo;
-  assert.equal((await fetch(coverUrl,{headers:{cookie:a}})).status,200);
-  assert.equal((await fetch(coverUrl,{headers:{cookie:b}})).status,404);
-  assert.equal((await fetch(coverUrl)).status,401);
-  await post(b,{action:'findCover',book:one.id},400);
+  const cover = new FormData();
+  cover.set("book", one.id);
+  cover.set("kind", "cover");
+  cover.set(
+    "photo",
+    new Blob([readFileSync("public/icon-192.png")], { type: "image/png" }),
+    "cover.png",
+  );
+  await post(a, cover);
+  d = await get(a);
+  assert.ok(d.books[0].cover_photo);
+  assert.equal(d.photos.length, 1);
+  const coverUrl = base + "/api/photos/" + d.books[0].cover_photo;
+  assert.equal((await fetch(coverUrl, { headers: { cookie: a } })).status, 200);
+  assert.equal((await fetch(coverUrl, { headers: { cookie: b } })).status, 404);
+  assert.equal((await fetch(coverUrl)).status, 401);
+  await post(b, { action: "findCover", book: one.id }, 400);
   const photo = "/api/photos/" + d.photos[0].id;
   assert.equal(
     (await fetch(base + photo, { headers: { cookie: a } })).status,
@@ -181,7 +203,7 @@ try {
     await post(b, body, 400);
   const foreign = new FormData();
   foreign.set("book", one.id);
-  foreign.set('kind','cover');
+  foreign.set("kind", "cover");
   foreign.set(
     "photo",
     new Blob([readFileSync("public/icon-192.png")], { type: "image/png" }),

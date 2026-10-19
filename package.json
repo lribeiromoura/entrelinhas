@@ -11,19 +11,24 @@
     "test:integration": "node scripts/integration.mjs"
   },
   "dependencies": {
+    "@next/env": "16.4.2",
+    "@supabase/supabase-js": "2.118.0",
     "better-auth": "1.7.10",
     "better-sqlite3": "13.0.3",
     "next": "16.4.2",
+    "pg": "8.23.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "@next/env": "16.4.2"
+    "sharp": "0.35.5"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
+    "@electric-sql/pglite": "0.5.10",
+    "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/better-sqlite3": "9.6.0",
-    "tsx": "4.23.15"
+    "tsx": "4.23.15",
+    "typescript": "6.0.3"
   }
 }

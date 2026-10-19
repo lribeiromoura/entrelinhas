@@ -58,9 +58,9 @@ Os testes de integração sobem uma instância local temporária em `localhost:3
 - Sem recuperação de senha, confirmação de e-mail ou provedor social. Guarde sua senha.
 - Não há OCR, geração por IA, colaboração, push nem edição offline completa.
 - Texto não salvo fica apenas na tela atual. Em uma falha de salvamento, os campos permanecem preenchidos; fechar ou recarregar a página pode perder o rascunho.
-- Fotos não são comprimidas e seus metadados EXIF não são removidos. Envie apenas o necessário; o limite é de 8 MB por foto.
+- Fotos novas são otimizadas para JPEG, com até 2400 pixels no maior lado, e têm os metadados EXIF removidos. A entrada aceita até 8 MB e o envio ao servidor até 3 MB; imagens antigas locais permanecem intactas.
 - Instalação da PWA e acesso à câmera variam entre dispositivos. Não foi testado em um telefone físico. Uma instalação local no computador não sincroniza automaticamente com um telefone.
-- A configuração padrão atende uma instância local. Acesso remoto, HTTPS, backup automatizado e operação em produção exigem configuração adicional; não há deploy incluído.
+- A configuração padrão atende uma instância local. A integração opcional com Supabase e a preparação para Vercel estão incluídas; conexão e publicação exigem configurar as variáveis privadas descritas abaixo. Backup automatizado ainda não está incluído.
 
 ## Referências
 
@@ -76,3 +76,29 @@ O aplicativo não grava nem armazena um arquivo de áudio. O serviço de reconhe
 O ditado para ao sair da página do livro. Nenhum texto é salvo automaticamente; recarregar ou sair antes de salvar pode perder o rascunho. O botão de salvar fica bloqueado durante o ditado para evitar salvar uma transcrição incompleta. Falhas do microfone ou da rede não apagam o texto já recebido.
 
 Verificação: eventos de fala, trechos provisórios/finais, duplicatas, preservação do texto, interrupção, permissão negada, falha de rede e encerramento ao trocar de livro são testados com um reconhecimento simulado. O microfone real não é acionado por esses testes.
+
+## Supabase e Vercel
+
+O aplicativo possui dois modos: SQLite local (sem segredos externos) e Supabase (PostgreSQL e Storage privado). O login continua com Better Auth e cookies de sessão. O navegador não recebe a chave administrativa nem a conexão do banco.
+
+Configure as seguintes variáveis **privadas no servidor** do projeto Vercel:
+
+| Variável                                             | Valor                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL` ou `POSTGRES_URL`                     | URI do Transaction pooler do Supabase, com a senha do banco              |
+| `SUPABASE_URL`                                       | URL do projeto Supabase                                                  |
+| `SUPABASE_SERVICE_ROLE_KEY` ou `SUPABASE_SECRET_KEY` | Chave privada do projeto; nunca use prefixo `NEXT_PUBLIC_`               |
+| `BETTER_AUTH_SECRET`                                 | Segredo aleatório de pelo menos 32 caracteres, estável entre publicações |
+| `BETTER_AUTH_URL`                                    | Origem HTTPS exata da publicação, sem caminho                            |
+
+`DATABASE_MIGRATION_URL` é opcional: permite indicar a URI do Session pooler para preparação das tabelas. Sem ela, o script usa a mesma conexão e troca a porta 6543 pela 5432 quando o host é o pooler oficial do Supabase. Isso mantém os bloqueios de migração em uma sessão, sem usar bloqueio de sessão através do Transaction pooler. `DATABASE_CA_CERT` permite fornecer a CA oficial do projeto caso necessária. A validação do certificado TLS permanece ativa.
+
+O `vercel.json` prepara o banco e executa o build antes da publicação. O script cria as tabelas do Better Auth, aplica `supabase/app-schema.sql`, ativa RLS, revoga acesso às tabelas de login e biblioteca para os papéis públicos do Supabase e prepara o bucket privado `entrelinhas-private`. A conta da conexão precisa ter permissão para essas etapas. O acesso aos dados ocorre pelos endpoints autenticados do aplicativo; não crie políticas públicas de leitura nas tabelas nem no bucket. Um bucket existente que seja público causa falha de preparação em vez de uma publicação insegura.
+
+A integração oficial Supabase–Vercel pode fornecer as variáveis `POSTGRES_URL`, `SUPABASE_URL` e `SUPABASE_SECRET_KEY`. O aplicativo aceita esses nomes. Ainda é preciso definir as duas variáveis do Better Auth. Mantenha a conexão restrita ao projeto Entrelinhas e não vincule ambientes de teste ao banco de produção sem intenção explícita.
+
+A configuração incompleta na Vercel falha de forma explícita; o aplicativo não usa um SQLite temporário silenciosamente. Os dados e as contas da instalação local **não são transferidos automaticamente** para o Supabase. A cópia local continua preservada; uma migração de dados é uma operação separada.
+
+As imagens são baixadas pelo servidor somente após conferir a sessão e o proprietário. Não há URL pública de fotos nem cache compartilhado de conteúdo privado. Uploads que falham na vinculação ao banco tentam limpar o objeto enviado.
+
+Referências: [conexões Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres), [integração Vercel](https://supabase.com/docs/guides/integrations/vercel-marketplace), [limite de requisições Vercel](https://vercel.com/docs/functions/limitations).

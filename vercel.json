@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci --legacy-peer-deps",
+  "buildCommand": "npm run db:init && npm run build",
+  "functions": { "app/api/**/*.ts": { "maxDuration": 60 } }
+}

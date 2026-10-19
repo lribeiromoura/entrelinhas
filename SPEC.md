@@ -56,3 +56,14 @@ Aplicação local em Next.js e TypeScript para uma biblioteca pessoal privada po
 - Permissão negada, microfone indisponível, erro de rede e navegador sem suporte têm mensagens em português. Digitação e salvamento continuam disponíveis.
 - Sair da página do livro ou da conta encerra o reconhecimento. Eventos de uma sessão encerrada não alteram outro livro.
 - Testes simulam eventos de reconhecimento e falhas. O teste real de microfone exige ação do usuário; não será iniciada captura durante a chamada de voz.
+
+## Incremento: publicação com Supabase
+
+- Após a primeira entrega local, o usuário autorizou envio ao GitHub e publicação na Vercel com Supabase. O modo local permanece executável.
+- PostgreSQL armazena contas e registros; Storage privado armazena novas fotos e capas. Login permanece Better Auth por cookie, sem autenticação de usuário por Bearer token.
+- Consultas são parametrizadas em ambos os bancos, com proprietário derivado da sessão. Tipos de identificadores de capa e datas permanecem consistentes.
+- Credenciais de banco e Storage existem somente no servidor, fora do repositório e dos arquivos servidos ao navegador.
+- Migrações são aditivas e idempotentes, com conexão de sessão para o bloqueio de preparação. RLS e revogação das permissões públicas protegem tabelas da biblioteca e autenticação. Não há políticas públicas de fotos.
+- Vercel sem configuração completa não pode cair em armazenamento local efêmero. A publicação só é considerada concluída após login, salvamento e leitura verificados no endereço público.
+- Fotos novas são decodificadas e otimizadas para JPEG, com orientação aplicada, no máximo 2400 pixels e sem EXIF. Entrada até 8 MB; envio até 3 MB para caber nos limites da hospedagem. Arquivos antigos locais não são reescritos.
+- Testes HTTP usam banco isolado e desativam explicitamente credenciais cloud herdadas. A estrutura PostgreSQL é testada com um motor local; isso não substitui o teste final na instância real.

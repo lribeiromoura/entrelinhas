@@ -1,40 +1,103 @@
-import Database from "better-sqlite3";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-const dir = process.env.DATA_DIR || "data";
-mkdirSync(dir, { recursive: true, mode: 0o700 });
-if (!existsSync(`${dir}/secret`)) {
-  try {
-    writeFileSync(`${dir}/secret`, randomBytes(48).toString("hex"), {
-      mode: 0o600,
-      flag: "wx",
-    });
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-  }
+import { Pool, types, type PoolClient } from "pg";
+types.setTypeParser(20, Number);
+import type Database from "better-sqlite3";
+import { cloud, databaseURL } from "./settings";
+import { postgresParameters } from "./sql-parameters";
+// Separate the native local driver from cloud mode; cloud never writes to disk.
+const sqlite: Database.Database | null = cloud
+  ? null
+  : require("./sqlite").sqlite;
+const connectionURL = cloud ? new URL(databaseURL!) : null;
+for (const key of ["sslmode", "sslcert", "sslkey", "sslrootcert"])
+  connectionURL?.searchParams.delete(key);
+export const pgPool = cloud
+  ? new Pool({
+      connectionString: connectionURL!.toString(),
+      ssl: {
+        rejectUnauthorized: true,
+        ...(process.env.DATABASE_CA_CERT
+          ? { ca: process.env.DATABASE_CA_CERT.replace(/\\n/g, "\n") }
+          : {}),
+      },
+      max: 3,
+      idleTimeoutMillis: 20000,
+      connectionTimeoutMillis: 10000,
+    })
+  : null;
+export const authDatabase = pgPool || sqlite!;
+let tail: Promise<unknown> = Promise.resolve();
+function locked<T>(fn: () => Promise<T>): Promise<T> {
+  const result = tail.then(fn, fn);
+  tail = result.catch(() => {});
+  return result;
 }
-export const secret =
-  process.env.BETTER_AUTH_SECRET || readFileSync(`${dir}/secret`, "utf8");
-export const db = new Database(`${dir}/library.sqlite`);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-db.exec(`CREATE TABLE IF NOT EXISTS books(id TEXT PRIMARY KEY,owner TEXT NOT NULL,title TEXT NOT NULL,author TEXT NOT NULL,summary TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS ideas(id TEXT PRIMARY KEY,owner TEXT NOT NULL,book TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,title TEXT NOT NULL,description TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS connections(id TEXT PRIMARY KEY,owner TEXT NOT NULL,source TEXT NOT NULL REFERENCES ideas(id),target TEXT NOT NULL REFERENCES ideas(id),UNIQUE(owner,source,target));
-CREATE TABLE IF NOT EXISTS questions(id TEXT PRIMARY KEY,owner TEXT NOT NULL,book TEXT NOT NULL REFERENCES books(id),prompt TEXT NOT NULL,answer TEXT NOT NULL,stage INTEGER NOT NULL DEFAULT 0,due INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS photos(id TEXT PRIMARY KEY,owner TEXT NOT NULL,book TEXT NOT NULL REFERENCES books(id),mime TEXT NOT NULL,bytes BLOB NOT NULL);`);
-
-// Additive migration for existing local libraries.
-db.transaction(() => {
-  const columns = db.pragma("table_info(books)") as { name: string }[];
-  for (const [name, type] of [
-    ["cover_id", "INTEGER"],
-    ["cover_photo", "TEXT"],
-  ]) {
-    if (!columns.some((c) => c.name === name))
-      db.exec(`ALTER TABLE books ADD COLUMN ${name} ${type}`);
+export interface DataStore {
+  all<T = Record<string, unknown>>(
+    sql: string,
+    ...args: unknown[]
+  ): Promise<T[]>;
+  get<T = Record<string, unknown>>(
+    sql: string,
+    ...args: unknown[]
+  ): Promise<T | undefined>;
+  run(sql: string, ...args: unknown[]): Promise<void>;
+  transaction<T>(fn: (tx: DataStore) => Promise<T>): Promise<T>;
+}
+function store(client?: PoolClient, inside = false): DataStore {
+  const pg = client || pgPool;
+  async function execute(sql: string, args: unknown[], rows: boolean) {
+    if (pg) {
+      const result = await pg.query(postgresParameters(sql), args);
+      return result.rows;
+    }
+    const action = async () => {
+      const statement = sqlite!.prepare(sql);
+      return rows ? statement.all(...args) : statement.run(...args);
+    };
+    return inside ? action() : locked(action);
   }
-  const photos = db.pragma("table_info(photos)") as { name: string }[];
-  if (!photos.some((c) => c.name === "kind"))
-    db.exec("ALTER TABLE photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'note'");
-}).immediate();
+  return {
+    async all<T>(sql: string, ...args: unknown[]) {
+      return (await execute(sql, args, true)) as T[];
+    },
+    async get<T>(sql: string, ...args: unknown[]) {
+      return ((await execute(sql, args, true)) as T[])[0];
+    },
+    async run(sql: string, ...args: unknown[]) {
+      await execute(sql, args, false);
+    },
+    async transaction<T>(fn: (tx: DataStore) => Promise<T>) {
+      if (inside) throw Error("Transação aninhada não suportada.");
+      if (pgPool) {
+        const connection = await pgPool.connect();
+        try {
+          await connection.query("BEGIN");
+          const result = await fn(store(connection, true));
+          await connection.query("COMMIT");
+          return result;
+        } catch (e) {
+          await connection.query("ROLLBACK");
+          throw e;
+        } finally {
+          connection.release();
+        }
+      }
+      return locked(async () => {
+        sqlite!.exec("BEGIN IMMEDIATE");
+        try {
+          const result = await fn(store(undefined, true));
+          sqlite!.exec("COMMIT");
+          return result;
+        } catch (e) {
+          sqlite!.exec("ROLLBACK");
+          throw e;
+        }
+      });
+    },
+  };
+}
+export const db = store();
+export async function closeDatabase() {
+  await pgPool?.end();
+  sqlite?.close();
+}

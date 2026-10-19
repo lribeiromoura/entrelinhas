@@ -1,9 +1,10 @@
 import { betterAuth } from "better-auth";
-import { db, secret } from "./db";
+import { authDatabase } from "./db";
+import { secret, publicOrigin } from "./settings";
 export const auth = betterAuth({
-  database: db,
+  database: authDatabase,
   telemetry: { enabled: false },
   secret,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: publicOrigin,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },
 });

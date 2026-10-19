@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import Dictation from "./components/Dictation";
+import { optimizePhoto } from "../lib/optimize-photo";
 import { appendDictation } from "../lib/dictation";
 const auth = createAuthClient();
 type Book = {
@@ -110,6 +111,11 @@ export default function Home() {
     setError("");
     setNotice("");
     try {
+      if (body instanceof FormData) {
+        const original = body.get("photo");
+        if (original instanceof File)
+          body.set("photo", await optimizePhoto(original));
+      }
       const r = await fetch("/api/data", {
         method: "POST",
         headers:
@@ -507,13 +513,17 @@ export default function Home() {
                             required
                           />
                         </label>
-                        <small>JPEG, PNG ou WebP · até 8 MB</small>
+                        <small>
+                          JPEG, PNG ou WebP · até 8 MB; envio otimizado
+                        </small>
                         <button disabled={busy}>Salvar imagem da capa</button>
                       </form>
                     </div>
                     <div className="panel">
                       <h2>Fotos das anotações</h2>
-                      <p>JPEG, PNG ou WebP · até 8 MB por foto</p>
+                      <p>
+                        JPEG, PNG ou WebP · até 8 MB; envio otimizado por foto
+                      </p>
                       <form
                         onSubmit={async (e) => {
                           e.preventDefault();
