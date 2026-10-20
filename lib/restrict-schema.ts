@@ -1,5 +1,9 @@
 export const privateTables = [
   "books",
+  "summary_versions",
+  "storage_deletions",
+  "backup_imports",
+  "backup_import_photos",
   "ideas",
   "connections",
   "questions",

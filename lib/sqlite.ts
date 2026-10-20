@@ -34,3 +34,15 @@ sqlite
       );
   })
   .immediate();
+
+sqlite.exec(`CREATE TABLE IF NOT EXISTS backup_imports(id TEXT PRIMARY KEY,owner TEXT NOT NULL,fingerprint TEXT NOT NULL,manifest TEXT NOT NULL,status TEXT NOT NULL,expires INTEGER NOT NULL,UNIQUE(owner,fingerprint));
+CREATE TABLE IF NOT EXISTS backup_import_photos(import_id TEXT NOT NULL REFERENCES backup_imports(id) ON DELETE CASCADE,source_id TEXT NOT NULL,photo_id TEXT NOT NULL,mime TEXT NOT NULL,bytes BLOB,storage_path TEXT,PRIMARY KEY(import_id,source_id));`);
+
+for (const name of ["map_x", "map_y"]) {
+  const fields = sqlite.pragma("table_info(ideas)") as { name: string }[];
+  if (!fields.some(field => field.name === name)) sqlite.exec(`ALTER TABLE ideas ADD COLUMN ${name} INTEGER`);
+}
+
+sqlite.exec("CREATE TABLE IF NOT EXISTS storage_deletions(id TEXT PRIMARY KEY,owner TEXT NOT NULL,storage_path TEXT NOT NULL)");
+
+sqlite.exec("CREATE TABLE IF NOT EXISTS summary_versions(id TEXT PRIMARY KEY,owner TEXT NOT NULL,book TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,summary TEXT NOT NULL,created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS summary_versions_book_idx ON summary_versions(owner,book,created_at)");

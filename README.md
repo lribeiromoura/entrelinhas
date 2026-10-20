@@ -24,14 +24,12 @@ Não execute desenvolvimento e produção na mesma porta ao mesmo tempo. Encerre
 
 ## Experimentar o fluxo
 
-1. Crie uma conta e busque um título, autor ou ISBN. Adicione um resultado ou use “Prefiro cadastrar manualmente”.
-2. As capas disponíveis vêm junto com os novos livros da busca. Para livros existentes, abra “Capa do livro” e clique em “Buscar capa na Open Library” ou envie sua própria imagem (JPEG/PNG/WebP até 8 MB). A capa é exibida inteira na estante. A imagem encontrada pode ser de outra edição. Capas enviadas permanecem privadas; as da Open Library são carregadas do serviço público e exigem conexão.
-3. Abra o livro e salve um resumo. Você também pode colar uma transcrição obtida fora do aplicativo.
-4. Envie fotos pela galeria ou câmera. São aceitos JPEG, PNG e WebP até 8 MB cada. A câmera depende do dispositivo e navegador; no computador pode aparecer um seletor de arquivos.
-5. Crie ideias com título e descrição em um ou vários livros. Abra “Mapa de ideias”, selecione duas ideias e conecte. O desenho permite rolagem horizontal em telas pequenas; há também a lista textual das conexões.
-6. Crie perguntas e respostas na página do livro. A primeira revisão vence em um dia. Para demonstrar imediatamente, em “Revisões”, marque “Incluir perguntas futuras para praticar”. Essa prática também reagenda a pergunta.
-7. Digite uma tentativa antes de revelar a resposta e faça sua autoavaliação. Boa recordação avança de 1 para 3, 7, 14 e 30 dias; dificuldade mantém o intervalo; não lembrar retorna a um dia. Atrasadas permanecem disponíveis.
-8. Use a opção de instalar/adicionar à tela inicial do navegador, se oferecida. Manifesto, ícones PNG e service worker estão incluídos. O uso continua conectado; ao perder a conexão, há aviso e página de recuperação. Não há cache de dados privados.
+1. Crie uma conta e use **Adicionar Livro** na estante. Busque título, autor ou ISBN, ou cadastre manualmente no modal.
+2. Abra um livro. Em **Opções do livro**, use **Editar livro**, **Capa do livro**, **Exportar PDF** ou **Mover para lixeira**. A capa pode ser buscada na Open Library ou enviada como imagem privada.
+3. Escreva ou dite um resumo e clique em **Salvar resumo**. Cada alteração salva cria uma versão. O editor mostra o texto atual; **Histórico** abre as versões guardadas, permite consultar o texto completo e usar uma delas como atual. A recuperação cria uma nova versão e preserva as outras. Rascunhos locais só entram no histórico ao serem salvos.
+4. Em **Escolher foto**, selecione imagens ou use a câmera quando o dispositivo oferecer essa opção. São aceitos JPEG, PNG e WebP de até 8 MB por imagem.
+5. No menu lateral ficam Biblioteca, Exportar PDF, Backup e Lixeira. Ideias, mapa, perguntas e revisões foram retirados da interface por solicitação do usuário. Registros antigos continuam preservados no banco e nos backups compatíveis.
+6. A PWA pode ser adicionada à tela inicial se o navegador oferecer essa opção. O uso continua conectado e os dados privados não ficam em cache.
 
 ## Dados e configuração
 
@@ -53,8 +51,7 @@ Os testes de integração sobem uma instância local temporária em `localhost:3
 
 ## Limitações desta primeira versão
 
-- Não há exclusão nem edição de livros, ideias, conexões ou perguntas; apenas o resumo é editável.
-- O mapa usa posicionamento automático simples; não permite arrastar nós ou zoom.
+- O uso atual está concentrado em livros, resumos com histórico e fotos. Recursos antigos de ideias, mapa e revisão foram retirados da interface.
 - Sem recuperação de senha, confirmação de e-mail ou provedor social. Guarde sua senha.
 - Não há OCR, geração por IA, colaboração, push nem edição offline completa.
 - Texto não salvo fica apenas na tela atual. Em uma falha de salvamento, os campos permanecem preenchidos; fechar ou recarregar a página pode perder o rascunho.
@@ -107,3 +104,27 @@ Referências: [conexões Supabase](https://supabase.com/docs/guides/database/con
 O resumo guarda rascunho automaticamente na sessão da aba, separado por conta e livro. Volte ao livro para recuperar; clique em **Salvar resumo** para persistir no servidor. Fechar a aba pode apagar rascunhos. O navegador avisa antes de sair, mas esse aviso pode não aparecer quando o sistema encerra o aplicativo. Sair da conta limpa os rascunhos após confirmação.
 
 Use **Editar** para corrigir livros, ideias e perguntas. **Mover para lixeira** oculta registros sem excluí-los definitivamente. A aba **Lixeira** permite restaurar. Restaure primeiro livros e ideias necessários; a agenda das revisões é mantida. Itens removidos separadamente precisam ser restaurados separadamente. Fotos de itens ocultos deixam de ser acessíveis. O deploy executa migrações aditivas compatíveis com os dados existentes.
+
+### Backup com fotos e restauração
+Na aba **Backup**, use **Baixar backup com fotos**. O arquivo JSON versionado contém os registros salvos, fotos, capas enviadas, referências às capas da Open Library, vínculos, datas/estágios de revisão e itens da lixeira. Rascunhos não salvos e credenciais não são exportados. O arquivo é privado e não é criptografado; guarde-o como suas próprias anotações.
+
+Selecione o arquivo, confira a prévia e clique em **Restaurar na minha biblioteca**. A restauração acrescenta cópias com novos identificadores à conta atual, sem substituir registros existentes. Mantém a lixeira e a agenda. O mesmo backup não é importado duas vezes na mesma conta. Se uma transferência falhar, tente novamente com o mesmo arquivo; fotos já recebidas são aproveitadas. Arquivos inválidos ou incompletos não produzem uma biblioteca parcial.
+
+Limites explícitos desta versão: 100 MB por arquivo JSON, 2 MB de metadados/texto, 5.000 registros de cada tipo e 3 MB por imagem. As imagens são conferidas pelo conteúdo e hash e passam pela otimização/remoção de metadados ao restaurar. Capas externas continuam dependendo da Open Library. O navegador monta o download com imagens recebidas individualmente; a restauração envia os metadados e cada imagem separadamente, respeitando o [limite de payload das funções Vercel](https://vercel.com/docs/functions/limitations).
+
+Migrações aditivas criam `backup_imports` e `backup_import_photos`, ambas privadas com RLS e acesso público revogado no PostgreSQL. Arquivos em preparação ficam invisíveis até a conclusão em uma transação. Envios pendentes expiram em 24 horas; iniciar outra restauração da mesma conta limpa os registros temporários expirados e tenta remover suas imagens temporárias. Não há processo agendado de limpeza nem serviço pago adicional. As operações de backup exigem sessão e as de escrita verificam a origem.
+
+A implementação foi verificada localmente e com PostgreSQL via PGlite. A publicação desta etapa aguarda o commit/deploy consolidado solicitado. Depois do deploy, a verificação opcional é `node scripts/integration.mjs --production --backup`; ela cria contas e dados fictícios no endereço oficial.
+
+### Exportar PDF
+Na aba **Exportar PDF**, escolha os livros; na página de cada livro, use **Exportar PDF deste livro** para baixar somente aquele volume. Em ambos os casos, marque as seções: resumos atuais, fotos das anotações e capas enviadas. Use **Tudo** ou **Somente resumos** para começar rapidamente. O download é um PDF A4 criado no navegador; as fotos privadas são lidas individualmente após autenticação. Apenas registros ativos salvos entram no arquivo. Capas externas da Open Library, rascunhos e lixeira ficam de fora. O PDF contém suas anotações; guarde-o em local privado.
+
+### Estante, cadastro e lixeira
+A estante abre diretamente em **Sua estante** e **Adicionar Livro**. O cadastro por busca ou manual fica em um modal. Segurar um cartão por 600 ms, clicar com o botão direito ou usar **···** abre a opção **Apagar livro**, que move o livro e oculta seu conteúdo na lixeira. A exclusão definitiva só está disponível na lixeira e exige confirmação; excluir um livro remove também fotos, perguntas, ideias e conexões relacionadas.
+
+A retenção é de 30 dias a partir da remoção. A biblioteca e os metadados de backup verificam os vencidos antes de carregar; operações da biblioteca também fazem essa verificação. O deploy tem um cron diário às 06:00 UTC em `/api/cron/trash`. Para ativá-lo de forma segura, configure **CRON_SECRET** com 32 ou mais caracteres na Vercel antes de publicar. Sem esse segredo, o endpoint agendado retorna 503; a limpeza ao acessar continua funcionando. A Vercel envia o segredo no cabeçalho de autorização conforme a [documentação oficial](https://vercel.com/docs/cron-jobs/manage-cron-jobs). A remoção de arquivos privados usa uma fila persistente para retentar falhas sem restaurar registros excluídos. A limpeza é feita em lotes; volumes grandes podem exigir mais de uma execução. Backups já baixados permanecem no dispositivo de quem os guardou.
+
+### Histórico dos resumos
+Migração aditiva cria `summary_versions`, privada por conta e com RLS no PostgreSQL. Salvamento e recuperação são transacionais: o resumo anterior e o novo são preservados; salvar texto idêntico não duplica versões. Um resumo anterior à implantação do histórico é preservado na primeira alteração. A consulta lista 20 entradas por página e carrega o texto completo de uma versão sob demanda; livros na lixeira e versões de outra conta são recusados. Excluir definitivamente um livro elimina também seu histórico.
+
+O JSON de backup inclui `summaryVersions`, com identificação e livro remapeados ao restaurar. Backups antigos sem esse campo continuam aceitos. O limite de 2 MB de texto do backup inclui o histórico. O PDF usa apenas o resumo atual, conforme as seções selecionadas.

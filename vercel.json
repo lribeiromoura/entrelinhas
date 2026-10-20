@@ -3,5 +3,15 @@
   "framework": "nextjs",
   "installCommand": "npm ci --legacy-peer-deps",
   "buildCommand": "npm run db:init && npm run build",
-  "functions": { "app/api/**/*.ts": { "maxDuration": 60 } }
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/trash",
+      "schedule": "0 6 * * *"
+    }
+  ]
 }

@@ -32,7 +32,7 @@ export function createPrivateStorage(client: SupabaseClient, bucket: string) {
     },
     async remove(path: string) {
       const { error } = await client.storage.from(bucket).remove([path]);
-      if (error) console.error("Falha ao limpar imagem não vinculada.");
+      if (error) throw Error("Não foi possível remover a imagem privada.");
     },
     async download(path: string, owner: string) {
       if (!path.startsWith(owner + "/") || path.includes(".."))

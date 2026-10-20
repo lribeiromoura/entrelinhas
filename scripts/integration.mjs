@@ -1,13 +1,20 @@
+import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 const dir = mkdtempSync(join(tmpdir(), "entrelinhas-test-"));
-const base = "http://localhost:3101";
+// Production validation is explicit and restricted to this app's canonical domain.
+const production = process.argv.includes("--production");
+const base = production ? "https://entrelinhas-five-iota.vercel.app" : "http://localhost:3101";
+const runId = crypto.randomUUID();
+const password = production ? crypto.randomUUID() + crypto.randomUUID() : "leitura-segura-123";
+const emailFor = name => production ? `qa-${name.toLowerCase()}-${runId}@example.com` : name.toLowerCase() + "@example.com";
 const env = {
   ...process.env,
   DATA_DIR: dir,
+  CRON_SECRET: "segredo-de-cron-somente-para-teste-isolado-2026",
   DATABASE_URL: "",
   POSTGRES_URL: "",
   DATABASE_MIGRATION_URL: "",
@@ -21,31 +28,33 @@ const env = {
 };
 let server;
 try {
-  execFileSync(process.execPath, ["--import", "tsx", "scripts/init-auth.ts"], {
-    env,
-    stdio: "pipe",
-  });
-  server = spawn(
-    process.execPath,
-    [
-      "node_modules/next/dist/bin/next",
-      "start",
-      "-p",
-      "3101",
-      "--hostname",
-      "localhost",
-    ],
-    { env, stdio: "pipe" },
-  );
-  let logs = "";
-  server.stderr.on("data", (d) => (logs += d));
-  server.stdout.on("data", (d) => (logs += d));
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(base)).ok) break;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 300));
-    if (i === 99) throw Error("Servidor não iniciou: " + logs);
+  if (!production) {
+    execFileSync(process.execPath, ["--import", "tsx", "scripts/init-auth.ts"], {
+      env,
+      stdio: "pipe",
+    });
+    server = spawn(
+      process.execPath,
+      [
+        "node_modules/next/dist/bin/next",
+        "start",
+        "-p",
+        "3101",
+        "--hostname",
+        "localhost",
+      ],
+      { env, stdio: "pipe" },
+    );
+    let logs = "";
+    server.stderr.on("data", (d) => (logs += d));
+    server.stdout.on("data", (d) => (logs += d));
+    for (let i = 0; i < 100; i++) {
+      try {
+        if ((await fetch(base)).ok) break;
+      } catch {}
+      await new Promise((r) => setTimeout(r, 300));
+      if (i === 99) throw Error("Servidor não iniciou: " + logs);
+    }
   }
   const accounts = [];
   for (const name of ["Ana", "Bruno"]) {
@@ -53,9 +62,9 @@ try {
       method: "POST",
       headers: { "Content-Type": "application/json", origin: base },
       body: JSON.stringify({
-        name,
-        email: name.toLowerCase() + "@example.com",
-        password: "leitura-segura-123",
+        name: production ? "Verificação Entrelinhas · " + name : name,
+        email: emailFor(name),
+        password,
       }),
     });
     assert.equal(r.status, 200, await r.text());
@@ -65,6 +74,10 @@ try {
         .map((c) => c.split(";")[0])
         .join("; "),
     );
+  }
+  if (production) {
+    mkdirSync("work", { recursive: true });
+    writeFileSync("work/production-verification-account.json", JSON.stringify({ email: emailFor("Ana"), password }), { mode: 0o600 });
   }
   const [a, b] = accounts;
   async function get(cookie) {
@@ -89,11 +102,11 @@ try {
   assert.equal((await fetch(base + "/api/data")).status, 401);
   await post(a, {
     action: "book",
-    title: "Livro A",
+    title: production ? "Verificação automática · Livro A" : "Livro A",
     author: "Autora",
     cover_id: 12345,
   });
-  await post(a, { action: "book", title: "Livro B", author: "Autor" });
+  await post(a, { action: "book", title: production ? "Verificação automática · Livro B" : "Livro B", author: "Autor" });
   let d = await get(a);
   const [one, two] = d.books;
   assert.equal(one.cover_id, 12345);
@@ -102,6 +115,22 @@ try {
     book: one.id,
     summary: "Transcrição e resumo persistidos.",
   });
+  if (!production || process.argv.includes("--versions")) {
+    const endpoint = base + "/api/books/" + one.id + "/summaries";
+    assert.equal((await fetch(endpoint)).status, 401);
+    assert.equal((await fetch(endpoint, { headers: { cookie: b } })).status, 404);
+    await post(a, { action: "summary", book: one.id, summary: "Resumo revisado para o histórico." });
+    const history = await (await fetch(endpoint, { headers: { cookie: a } })).json();
+    assert.equal(history.items.length, 2);
+    const old = history.items.find(item => item.id !== history.currentId);
+    await post(b, { action: "restoreSummary", book: one.id, version: old.id }, 400);
+    await post(a, { action: "restoreSummary", book: two.id, version: old.id }, 400);
+    await post(a, { action: "restoreSummary", book: one.id, version: old.id });
+    assert.equal((await get(a)).books.find(book => book.id === one.id).summary, "Transcrição e resumo persistidos.");
+    const after = await (await fetch(endpoint, { headers: { cookie: a } })).json();
+    assert.equal(after.items.length, 3);
+    console.log("PASS: histórico privado dos resumos e recuperação como atual sem perder versões anteriores.");
+  }
   await post(a, {
     action: "idea",
     book: one.id,
@@ -266,6 +295,95 @@ try {
   assert.equal(restored.questions[0].answer, "Resposta corrigida");
   assert.equal(restored.books.find(book => book.id === one.id).title, "Livro corrigido");
   assert.deepEqual((await get(b)).trash, []);
+  if (!production || process.argv.includes("--map")) {
+    await post(a, { action: "mapPositions", positions: [{ id: idea.id, x: -175, y: 280 }] });
+    assert.equal((await get(a)).ideas.find(row => row.id === idea.id).map_x, -175);
+    assert.equal((await get(a)).ideas.find(row => row.id === idea.id).map_y, 280);
+    await post(b, { action: "mapPositions", positions: [{ id: idea.id, x: 0, y: 0 }] }, 400);
+    await post(a, { action: "mapPositions", positions: [{ id: idea.id, x: 0, y: 0 }, { id: "missing", x: 1, y: 1 }] }, 400);
+    assert.equal((await get(a)).ideas.find(row => row.id === idea.id).map_x, -175);
+    await post(a, { action: "mapPositions", positions: [{ id: idea.id, x: 1e8, y: 0 }] }, 400);
+  }
+  if (!production || process.argv.includes("--backup")) {
+    // Export hidden records too, then restore into an independent account with existing data.
+    await post(a, { action: "question", book: one.id, prompt: "Na lixeira", answer: "Preservar" });
+    const extraQuestion = (await get(a)).questions.find(row => row.prompt === "Na lixeira");
+    await post(a, { action: "trash", kind: "question", id: extraQuestion.id });
+    await post(a, fd);
+    const extraPhoto = (await get(a)).photos.find(row => row.id !== photoId);
+    await post(a, { action: "trash", kind: "photo", id: extraPhoto.id });
+    await post(a, { action: "trash", kind: "book", id: two.id });
+    const getBackup = async cookie => {
+      const response = await fetch(base + "/api/backup", { headers: { cookie } });
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.match(response.headers.get("cache-control"), /no-store/);
+      return response.json();
+    };
+    assert.equal((await fetch(base + "/api/backup")).status, 401);
+    const archive = await getBackup(a);
+    assert.equal(archive.books.length, 2);
+    assert.equal(archive.questions.length, 2);
+    assert.equal(archive.photos.length, 3);
+    assert.ok(archive.books.find(row => row.id === two.id).deleted_at);
+    assert.equal(JSON.stringify(archive).includes('"owner":'), false);
+    for (const item of archive.photos) {
+      const response = await fetch(base + "/api/backup/photo/" + item.id, { headers: { cookie: a } });
+      assert.equal(response.status, 200);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      item.size = bytes.length;
+      item.sha256 = createHash("sha256").update(bytes).digest("hex");
+      item.data = bytes.toString("base64");
+    }
+    assert.equal((await fetch(base + "/api/photos/" + extraPhoto.id, { headers: { cookie: a } })).status, 404);
+    assert.equal((await fetch(base + "/api/backup/photo/" + extraPhoto.id, { headers: { cookie: b } })).status, 400);
+    assert.equal((await fetch(base + "/api/backup/photo/" + extraPhoto.id)).status, 401);
+    await post(b, { action: "book", title: "Já existia", author: "Preservar" });
+    const manifest = { ...archive, photos: archive.photos.map(({ data, ...photo }) => photo) };
+    async function importRequest(cookie, path, body, expected = 200, method = "POST", origin = base, mime = "application/json") {
+      const response = await fetch(base + path, { method, headers: { cookie, origin, "Content-Type": mime }, body: Buffer.isBuffer(body) ? body : JSON.stringify(body) });
+      assert.equal(response.status, expected, await response.clone().text());
+      return response;
+    }
+    const endpoint = "/api/backup/import";
+    await importRequest(b, endpoint, { action: "begin", manifest }, 403, "POST", "https://evil.example");
+    await importRequest("", endpoint, { action: "begin", manifest }, 401);
+    await importRequest(b, endpoint, { action: "begin", manifest: { ...manifest, version: 999 } }, 400);
+    const begun = await (await importRequest(b, endpoint, { action: "begin", manifest })).json();
+    assert.equal((await get(b)).books.length, 1, "Nenhum dado visível antes do commit");
+    await importRequest(a, endpoint, { action: "commit", id: begun.id }, 400);
+    await importRequest(b, endpoint, { action: "commit", id: begun.id }, 400);
+    for (const item of archive.photos) {
+      const path = `${endpoint}/${begun.id}/photos/${item.id}`;
+      await importRequest(b, path, Buffer.from("corrompida"), 400, "PUT", base, item.mime);
+      await importRequest(b, path, Buffer.from(item.data, "base64"), 403, "PUT", "https://evil.example", item.mime);
+      await importRequest(b, path, Buffer.from(item.data, "base64"), 200, "PUT", base, item.mime);
+      await importRequest(b, path, Buffer.from(item.data, "base64"), 200, "PUT", base, item.mime);
+    }
+    const resumed = await (await importRequest(b, endpoint, { action: "begin", manifest })).json();
+    assert.equal(resumed.id, begun.id); assert.equal(resumed.uploaded.length, 3);
+    await importRequest(b, endpoint, { action: "commit", id: begun.id });
+    const imported = await get(b), exported = await getBackup(b);
+    assert.equal(imported.books.length, 2);
+    assert.ok(imported.books.some(row => row.title === "Já existia"));
+    assert.equal(exported.books.length, 3);
+    assert.equal(exported.questions.length, 2);
+    assert.equal(exported.photos.length, 3);
+    assert.equal(exported.ideas.find(row => row.title === "Ideia corrigida").map_x, -175);
+    assert.equal(Number(exported.questions.find(row => row.prompt === "Pergunta corrigida").due), scheduled.due);
+    const importedPhoto = imported.photos[0];
+    assert.equal((await fetch(base + "/api/photos/" + importedPhoto.id, { headers: { cookie: b } })).status, 200);
+    assert.equal((await fetch(base + "/api/photos/" + importedPhoto.id, { headers: { cookie: a } })).status, 404);
+    const replay = await (await importRequest(b, endpoint, { action: "commit", id: begun.id })).json();
+    assert.equal(replay.alreadyImported, true);
+    assert.equal((await get(b)).books.length, 2);
+    assert.equal((await (await importRequest(b, endpoint, { action: "begin", manifest })).json()).complete, true);
+    if (!production) {
+      mkdirSync("work", { recursive: true });
+      writeFileSync("work/backup-verification.json", JSON.stringify(archive));
+    }
+    await post(a, { action: "restore", kind: "book", id: two.id });
+    console.log("PASS: backup com fotos e lixeira, restauração aditiva, agenda, retomada, idempotência, autenticação, CSRF e isolamento entre contas.");
+  }
   const csrf = await fetch(base + "/api/data", {
     method: "POST",
     headers: {
@@ -289,8 +407,8 @@ try {
     method: "POST",
     headers: { origin: base, "Content-Type": "application/json" },
     body: JSON.stringify({
-      email: "ana@example.com",
-      password: "leitura-segura-123",
+      email: emailFor("Ana"),
+      password,
     }),
   });
   assert.equal(login.status, 200);
@@ -299,8 +417,30 @@ try {
     .map((c) => c.split(";")[0])
     .join("; ");
   assert.equal((await get(cookie)).books.length, 2);
+  if (!production || process.argv.includes("--trash")) {
+    await post(cookie, { action: "book", title: "Livro descartável", author: "Teste da lixeira" });
+    const disposable = (await get(cookie)).books.find(row => row.title === "Livro descartável");
+    await post(cookie, { action: "purge", kind: "book", id: disposable.id }, 400);
+    await post(cookie, { action: "trash", kind: "book", id: disposable.id });
+    await post(b, { action: "purge", kind: "book", id: disposable.id }, 400);
+    await post(cookie, { action: "purge", kind: "book", id: disposable.id });
+    await post(cookie, { action: "restore", kind: "book", id: disposable.id }, 400);
+    assert.equal((await get(cookie)).trash.some(row => row.id === disposable.id), false);
+    if (!production) {
+      assert.equal((await fetch(base + "/api/cron/trash")).status, 401);
+      const sweep = await fetch(base + "/api/cron/trash", { headers: { authorization: "Bearer " + env.CRON_SECRET } });
+      assert.equal(sweep.status, 200);
+    }
+    console.log("PASS: exclusão definitiva restrita à lixeira e ao proprietário; restauração posterior recusada; cron protegido.");
+  }
   const manifest = await (await fetch(base + "/manifest.webmanifest")).json();
   assert.equal(manifest.display, "standalone");
+  if (production) {
+    writeFileSync("work/production-verification-result.json", JSON.stringify({
+      origin: base, verifiedAt: new Date().toISOString(), result: "passed",
+      checks: ["cadastro", "login", "logout", "persistência", "edição", "lixeira", "restauração", "fotos privadas", "isolamento entre contas", "CSRF", "agenda de revisões", "manifesto"],
+    }, null, 2));
+  }
   console.log(
     "PASS: cadastro, login, logout, livros, resumo, fotos, ideias, conexões, revisões, edição, lixeira e restauração com fotos privadas e agenda preservada, CSRF, isolamento de duas contas e manifesto.",
   );

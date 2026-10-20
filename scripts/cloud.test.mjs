@@ -1,3 +1,4 @@
+import { saveMapLayout } from "../lib/map-layout.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -55,6 +56,17 @@ test("schema PostgreSQL persiste livros, imagens, ideias, conexões e revisão",
       postgresParameters("INSERT INTO connections VALUES(?,?,?,?)"),
       ["c", "ana", "i", "j"],
     );
+    const mapStore = {
+      all: async (sql, ...args) => (await db.query(postgresParameters(sql), args)).rows,
+      run: async (sql, ...args) => { await db.query(postgresParameters(sql), args); },
+      transaction: fn => db.transaction(tx => fn({
+        all: async (sql, ...args) => (await tx.query(postgresParameters(sql), args)).rows,
+        run: async (sql, ...args) => { await tx.query(postgresParameters(sql), args); },
+      })),
+    };
+    await saveMapLayout(mapStore, "ana", [{ id: "i", x: -50, y: 120 }, { id: "j", x: 200, y: 300 }]);
+    assert.deepEqual((await db.query("SELECT map_x,map_y FROM ideas WHERE id='i'")).rows[0], { map_x: -50, map_y: 120 });
+    await assert.rejects(() => saveMapLayout(mapStore, "bruno", [{ id: "i", x: 0, y: 0 }]));
     const due = Date.now() + 86400000;
     await db.query(
       postgresParameters("INSERT INTO questions VALUES(?,?,?,?,?,?,?)"),
@@ -231,6 +243,8 @@ test("tabelas e contas não são acessíveis pelos papéis públicos do Supabase
       await db.exec("SET ROLE " + role);
       await assert.rejects(() => db.query("SELECT * FROM books"));
       await assert.rejects(() => db.query('SELECT * FROM \"user\"'));
+      await assert.rejects(() => db.query("SELECT * FROM backup_imports"));
+      await assert.rejects(() => db.query("SELECT * FROM backup_import_photos"));
       await db.exec("RESET ROLE");
     }
     assert.equal((await db.query("SELECT * FROM books")).rows.length, 1);

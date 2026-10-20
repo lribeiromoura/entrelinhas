@@ -1,6 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createAuthClient } from "better-auth/react";
+import Modal from "./components/Modal";
+import BookCard from "./components/BookCard";
+import BackupPanel from "./components/BackupPanel";
+import PdfExportPanel from "./components/PdfExportPanel";
 import RecordControls from "./components/RecordControls";
 import SummaryEditor from "./components/SummaryEditor";
 import { clearOwnerDrafts, hasOwnerDrafts } from "../lib/summary-draft";
@@ -14,28 +18,13 @@ type Book = {
   cover_id?: number | null;
   cover_photo?: string | null;
 };
-type Idea = { id: string; book: string; title: string; description: string };
-type Question = {
-  id: string;
-  book: string;
-  prompt: string;
-  answer: string;
-  stage: number;
-  due: number;
-};
 type Data = {
   books: Book[];
-  ideas: Idea[];
-  questions: Question[];
-  connections: { id: string; source: string; target: string }[];
   photos: { id: string; book: string }[];
   trash: { id: string; kind: string; title: string; deleted_at: number }[];
 };
 const empty: Data = {
   books: [],
-  ideas: [],
-  questions: [],
-  connections: [],
   photos: [],
   trash: [],
 };
@@ -75,12 +64,42 @@ export default function Home() {
   const { data: session, isPending } = auth.useSession();
   const [data, setData] = useState<Data>(empty);
   const [view, setView] = useState("library");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [addBookOpen, setAddBookOpen] = useState(false);
+  const [bookOptions, setBookOptions] = useState<Book | null>(null);
+  const [bookDialog, setBookDialog] = useState<"edit" | "cover" | null>(null);
+  const [purgeItem, setPurgeItem] = useState<Data["trash"][number] | null>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const menuPanel = useRef<HTMLElement>(null);
+  const bookMenu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => { if (bookMenu.current?.open && !bookMenu.current.contains(event.target as Node)) bookMenu.current.open = false; };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, []);
+  useEffect(() => { if (!session) { setMenuOpen(false); setAddBookOpen(false); setBookOptions(null); setPurgeItem(null); setBookDialog(null); } }, [session]);
   const [selected, setSelected] = useState("");
+  const [pdfBookId, setPdfBookId] = useState<string | null>(null);
   const [draftAtRisk, setDraftAtRisk] = useState(false);
   function navigate(next: string) {
-    if (draftAtRisk && !window.confirm("O rascunho não pôde ser guardado. Sair desta tela pode perder seu texto. Deseja sair mesmo assim?")) return;
+    if (next === view) return true;
+    if (draftAtRisk && !window.confirm("O rascunho não pôde ser guardado. Sair desta tela pode perder seu texto. Deseja sair mesmo assim?")) return false;
     setView(next);
+    return true;
   }
+  function closeMenu() {
+    setMenuOpen(false);
+    requestAnimationFrame(() => menuButton.current?.focus());
+  }
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    menuPanel.current?.querySelector<HTMLButtonElement>("nav button")?.focus();
+    const onEscape = (event: KeyboardEvent) => { if (event.key === "Escape") closeMenu(); };
+    document.addEventListener("keydown", onEscape);
+    return () => { document.removeEventListener("keydown", onEscape); document.body.style.overflow = previousOverflow; };
+  }, [menuOpen]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -89,9 +108,6 @@ export default function Home() {
   const [results, setResults] = useState<
     { key: string; title: string; author_name?: string[]; cover_i?: number }[]
   >([]);
-  const [attempt, setAttempt] = useState("");
-  const [revealed, setRevealed] = useState(false);
-  const [practice, setPractice] = useState(false);
   async function refresh() {
     const r = await fetch("/api/data");
     if (!r.ok) throw Error("Não foi possível carregar sua biblioteca.");
@@ -126,6 +142,7 @@ export default function Home() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [session?.user.id]);
+  useEffect(() => { if (!notice) return; const timeout = setTimeout(() => setNotice(""), 5000); return () => clearTimeout(timeout); }, [notice]);
   async function save(body: object | FormData) {
     setBusy(true);
     setError("");
@@ -169,10 +186,8 @@ export default function Home() {
     }
   }
   const book = data.books.find((b) => b.id === selected);
-  const due = data.questions.filter((q) => q.due <= Date.now());
-  const queue = practice ? data.questions : due;
-  const q = queue[0];
   function open(b: Book) {
+    setBookDialog(null);
     setSelected(b.id);
     setView("book");
     setNotice("");
@@ -182,17 +197,17 @@ export default function Home() {
     e.preventDefault();
     const el = e.currentTarget;
     const fields = Object.fromEntries(new FormData(el));
-    if (await save({ action, book: selected, ...fields })) el.reset();
+    if (await save({ action, book: selected, ...fields })) { el.reset(); if (action === "book") setAddBookOpen(false); }
   }
   return (
     <>
       <header>
-        <a className="brand" href="/">
-          ◈{" "}
-          <span>
-            entrelinhas<small>SUA BIBLIOTECA VIVA</small>
-          </span>
-        </a>
+        <div className="header-left">
+          {session && <button ref={menuButton} type="button" className="menu-toggle subtle" aria-label={menuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={menuOpen} aria-controls={menuOpen ? "primary-navigation" : undefined} onClick={() => menuOpen ? closeMenu() : setMenuOpen(true)}>
+            <span className="hamburger-icon" aria-hidden="true"><span /><span /><span /></span>
+          </button>}
+        </div>
+        <a className="brand" href="/" onClick={event => { if (session) { event.preventDefault(); if (navigate("library")) setMenuOpen(false); } }}><span className="brand-mark" aria-hidden="true">◈</span><span>entrelinhas</span></a>
         {session && (
           <button
             className="subtle"
@@ -204,14 +219,40 @@ export default function Home() {
               const result = await auth.signOut();
               if (result.error) { setError("Não foi possível sair. Tente novamente."); return; }
               try { clearOwnerDrafts(sessionStorage, session.user.id); } catch {}
+              setMenuOpen(false);
               setSelected("");
               setView("library");
             }}
           >
-            Sair · {session.user.name}
+            Sair
           </button>
         )}
       </header>
+      {session && menuOpen && <>
+        <div className="menu-backdrop" aria-hidden="true" onClick={closeMenu} />
+        <aside ref={menuPanel} className="menu-drawer" role="dialog" aria-modal="true" aria-label="Menu principal" onKeyDown={event => {
+          if (event.key !== "Tab") return;
+          const items = menuPanel.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+          if (!items?.length) return;
+          if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1].focus(); }
+          else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus(); }
+        }}>
+          <div className="drawer-heading"><strong>Menu</strong><button type="button" className="subtle" aria-label="Fechar menu" onClick={closeMenu}>×</button></div>
+          <nav id="primary-navigation" className="side-nav" aria-label="Principal">
+            {[
+              ["library", "Biblioteca"],
+              ["pdf", "Exportar PDF"],
+              ["backup", "Backup"],
+              ["trash", `Lixeira · ${data.trash.length}`],
+            ].map(([id, label]) => <button key={id} type="button" disabled={busy} aria-current={view === id ? "page" : undefined} className={view === id ? "active" : "subtle"} onClick={() => {
+              if (!navigate(id)) return;
+              if (id === "pdf") setPdfBookId(null);
+              setNotice(""); setError("");
+              closeMenu();
+            }}>{label}</button>)}
+          </nav>
+        </aside>
+      </>}
       {offline && (
         <aside className="offline" role="status">
           Você está sem conexão. Reconecte para carregar e salvar. Rascunhos de resumo ficam apenas nesta aba até você salvar; mantenha a aba aberta.
@@ -224,9 +265,7 @@ export default function Home() {
           </p>
         )}
         {notice && (
-          <p role="status" className="notice">
-            {notice}
-          </p>
+          <div role="status" className="notice floating-toast"><span>{notice}</span><button type="button" aria-label="Fechar aviso" onClick={() => setNotice("")}>×</button></div>
         )}
         {isPending ? (
           <p>Carregando…</p>
@@ -321,63 +360,30 @@ export default function Home() {
           </section>
         ) : (
           <>
-            <nav aria-label="Principal">
-              {[
-                ["library", "Biblioteca"],
-                ["map", "Mapa de ideias"],
-                ["trash", `Lixeira · ${data.trash.length}`],
-                ["review", `Revisões · ${due.length}`],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  className={view === id ? "active" : "subtle"}
-                  onClick={() => {
-                    navigate(id);
-                    setNotice("");
-                    setError("");
-                    setRevealed(false);
-                    setAttempt("");
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </nav>
             {view === "library" && (
               <>
-                <div className="heading">
-                  <div>
-                    <p className="eyebrow">SEU ACERVO PESSOAL</p>
-                    <h1>Entre uma página e outra.</h1>
-                    <p>Reúna suas leituras. Faça espaço para novas conexões.</p>
-                  </div>
-                  <span className="count">{data.books.length} livros</span>
+                <div className="shelf-heading">
+                  <h1>Sua estante <small>{data.books.length} {data.books.length === 1 ? "livro" : "livros"}</small></h1>
+                  <button type="button" disabled={busy} onClick={() => { setResults([]); setAddBookOpen(true); }}>Adicionar Livro</button>
                 </div>
-                <div className="columns">
-                  <section>
-                    <h2>Sua estante</h2>
+                <section>
                     {!data.books.length && (
                       <div className="empty">
                         Sua estante começa com uma leitura.
-                        <p>Busque um livro ou adicione o seu ao lado.</p>
+                        <p>Use “Adicionar Livro” para começar.</p>
                       </div>
                     )}
                     <div className="shelf">
                       {data.books.map((b, i) => (
-                        <button
-                          className="book-card"
-                          key={b.id}
-                          onClick={() => open(b)}
-                        >
+                        <BookCard key={b.id} title={b.title} onOpen={() => open(b)} onOptions={() => setBookOptions(b)}>
                           <BookCover book={b} index={i} />
                           <strong>{b.title}</strong>
                           <small>{b.author}</small>
-                        </button>
+                        </BookCard>
                       ))}
                     </div>
                   </section>
-                  <section className="panel">
-                    <h2>Adicionar uma leitura</h2>
+                  {addBookOpen && <Modal title="Adicionar Livro" busy={busy} onClose={() => setAddBookOpen(false)}>
                     <form
                       onSubmit={async (e) => {
                         e.preventDefault();
@@ -424,16 +430,16 @@ export default function Home() {
                           <button
                             disabled={busy}
                             className="subtle"
-                            onClick={() =>
-                              save({
+                            onClick={async () => {
+                              if (await save({
                                 action: "book",
                                 cover_id: r.cover_i,
                                 title: r.title,
                                 author:
                                   r.author_name?.join(", ") ||
                                   "Autor desconhecido",
-                              })
-                            }
+                              })) setAddBookOpen(false);
+                            }}
                           >
                             + Adicionar
                           </button>
@@ -457,8 +463,9 @@ export default function Home() {
                     <small>
                       Busca gratuita, sem chave de API. Dados da Open Library.
                     </small>
-                  </section>
-                </div>
+                    {notice && <p role="status">{notice}</p>}
+                    {error && <p role="alert" className="error">{error}</p>}
+                  </Modal>}
               </>
             )}
             {view === "book" && book && (
@@ -466,22 +473,23 @@ export default function Home() {
                 <button className="subtle" onClick={() => navigate("library")}>
                   ← Voltar à estante
                 </button>
-                <p className="eyebrow">CADERNO DE LEITURA</p>
-                <h1>{book.title}</h1>
-                <p>{book.author}</p>
-                <RecordControls kind="book" id={book.id} title={book.title} busy={busy} save={save}
-                  onRemoved={() => setView("library")} fields={[
-                    { name: "title", label: "Título do livro", value: book.title },
-                    { name: "author", label: "Autor", value: book.author },
-                  ]} />
-                <div className="columns">
-                  <section>
-                    <SummaryEditor key={session.user.id + ":" + book.id}
-                      owner={session.user.id} book={book.id} initial={book.summary}
-                      busy={busy} offline={offline} onStorageRisk={setDraftAtRisk}
-                      save={(summary) => save({ action: "summary", book: book.id, summary })} />
-                    <div className="panel cover-editor">
-                      <h2>Capa do livro</h2>
+                <div className="book-heading">
+                  <div><p className="eyebrow">CADERNO DE LEITURA</p><h1>{book.title}</h1><p>{book.author}</p></div>
+                  <details ref={bookMenu} className="book-actions" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary>Opções do livro</summary><div className="book-menu">
+                    <button type="button" className="subtle" disabled={busy} onClick={() => { setPdfBookId(book.id); navigate("pdf"); }}>Exportar PDF</button>
+                    <button type="button" className="subtle" disabled={busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setBookDialog("edit"); }}>Editar livro</button>
+                    <button type="button" className="subtle" disabled={busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setBookDialog("cover"); }}>Capa do livro</button>
+                    <button type="button" className="danger subtle" disabled={busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setBookOptions(book); }}>Mover para lixeira</button>
+                  </div></details>
+                </div>
+                {bookDialog === "edit" && <Modal title="Editar livro" busy={busy} onClose={() => setBookDialog(null)}>
+                  <form onSubmit={async event => { event.preventDefault(); const fields = Object.fromEntries(new FormData(event.currentTarget)); if (await save({ action: "edit", kind: "book", id: book.id, ...fields })) setBookDialog(null); }}>
+                    <label>Título<input name="title" required maxLength={500} defaultValue={book.title} /></label>
+                    <label>Autor<input name="author" required maxLength={500} defaultValue={book.author} /></label>
+                    <button disabled={busy}>Salvar alterações</button>
+                  </form>{error && <p role="alert" className="error">{error}</p>}
+                </Modal>}
+                {bookDialog === "cover" && <Modal title="Capa do livro" busy={busy} onClose={() => setBookDialog(null)}><div className="cover-editor">
                       <BookCover book={book} />
                       {book.cover_photo && <RecordControls kind="photo" id={book.cover_photo} title="Imagem da capa" busy={busy} save={save} />}
                       <p>
@@ -521,7 +529,14 @@ export default function Home() {
                         </small>
                         <button disabled={busy}>Salvar imagem da capa</button>
                       </form>
-                    </div>
+                    </div>{error && <p role="alert" className="error">{error}</p>}</Modal>}
+                <div className="book-content">
+                  <section>
+                    <SummaryEditor key={session.user.id + ":" + book.id}
+                      owner={session.user.id} book={book.id} initial={book.summary}
+                      busy={busy} offline={offline} onStorageRisk={setDraftAtRisk}
+                      save={(summary) => save({ action: "summary", book: book.id, summary })}
+                      restore={async version => { const restored = await save({ action: "restoreSummary", book: book.id, version }); if (restored) setNotice("Versão recuperada como resumo atual."); return restored; }} />
                     <div className="panel">
                       <h2>Fotos das anotações</h2>
                       <p>
@@ -537,7 +552,7 @@ export default function Home() {
                         }}
                       >
                         <label>
-                          Escolher na galeria
+                          Escolher foto
                           <input
                             type="file"
                             name="photo"
@@ -546,27 +561,6 @@ export default function Home() {
                           />
                         </label>
                         <button disabled={busy}>Enviar foto</button>
-                      </form>
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          const el = e.currentTarget;
-                          const f = new FormData(el);
-                          f.set("book", selected);
-                          if (await save(f)) el.reset();
-                        }}
-                      >
-                        <label>
-                          Fotografar com a câmera
-                          <input
-                            type="file"
-                            name="photo"
-                            accept="image/jpeg,image/png,image/webp"
-                            capture="environment"
-                            required
-                          />
-                        </label>
-                        <button disabled={busy}>Enviar fotografia</button>
                       </form>
                       <div className="photos">
                         {data.photos
@@ -586,287 +580,39 @@ export default function Home() {
                       </div>
                     </div>
                   </section>
-                  <section>
-                    <div className="panel">
-                      <h2>Ideias que merecem ficar</h2>
-                      {data.ideas
-                        .filter((i) => i.book === selected)
-                        .map((i) => (
-                          <article key={i.id}>
-                            <h3>{i.title}</h3>
-                            <p className="pre">{i.description}</p>
-                            <RecordControls kind="idea" id={i.id} title={i.title} busy={busy} save={save} fields={[
-                              { name: "title", label: "Título da ideia", value: i.title },
-                              { name: "description", label: "Descrição", value: i.description, multiline: true },
-                            ]} />
-                          </article>
-                        ))}
-                      <form onSubmit={(e) => form(e, "idea")}>
-                        <label>
-                          Título da ideia
-                          <input name="title" required maxLength={500} />
-                        </label>
-                        <label>
-                          Descrição
-                          <textarea name="description" required rows={3} />
-                        </label>
-                        <button disabled={busy}>Guardar ideia</button>
-                      </form>
-                    </div>
-                    <div className="panel">
-                      <h2>Perguntas de revisão</h2>
-                      <p>
-                        {
-                          data.questions.filter((q) => q.book === selected)
-                            .length
-                        }{" "}
-                        perguntas · primeira revisão em 1 dia
-                      </p>
-                      {data.questions.filter(question => question.book === selected).map(question => <article key={question.id}>
-                        <h3>{question.prompt}</h3>
-                        <details><summary>Consultar resposta</summary><p className="pre">{question.answer}</p></details>
-                        <RecordControls kind="question" id={question.id} title={question.prompt} busy={busy} save={save} fields={[
-                          { name: "prompt", label: "Pergunta", value: question.prompt, multiline: true },
-                          { name: "answer", label: "Resposta", value: question.answer, multiline: true },
-                        ]} />
-                      </article>)}
-                      <form onSubmit={(e) => form(e, "question")}>
-                        <label>
-                          Pergunta
-                          <textarea name="prompt" required />
-                        </label>
-                        <label>
-                          Resposta
-                          <textarea name="answer" required />
-                        </label>
-                        <button disabled={busy}>Criar pergunta</button>
-                      </form>
-                    </div>
-                  </section>
                 </div>
               </>
             )}
-            {view === "map" && (
-              <>
-                <p className="eyebrow">PENSAMENTOS EM CONVERSA</p>
-                <h1>Uma ideia puxa outra.</h1>
-                <p>
-                  Conecte ideias de um mesmo livro ou de leituras diferentes.
-                </p>
-                <section className="panel">
-                  <form
-                    className="connect"
-                    onSubmit={(e) => form(e, "connection")}
-                  >
-                    {["source", "target"].map((name, index) => (
-                      <label key={name}>
-                        {index ? "Conectar com" : "Ideia de origem"}
-                        <select name={name} required defaultValue="">
-                          <option value="" disabled>
-                            Escolha uma ideia
-                          </option>
-                          {data.ideas.map((i) => (
-                            <option value={i.id} key={i.id}>
-                              {i.title} ·{" "}
-                              {data.books.find((b) => b.id === i.book)?.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
-                    <button disabled={busy}>Conectar</button>
-                  </form>
-                </section>
-                {!data.ideas.length ? (
-                  <div className="empty">
-                    Adicione ideias na página de um livro para começar seu mapa.
-                  </div>
-                ) : (
-                  <>
-                    <div className="map">
-                      <svg
-                        viewBox={`0 0 900 ${Math.max(400, Math.ceil(data.ideas.length / 3) * 160)}`}
-                        role="img"
-                        aria-label="Mapa visual de ideias conectadas"
-                      >
-                        {data.connections.map((c) => {
-                          const a = data.ideas.findIndex(
-                              (i) => i.id === c.source,
-                            ),
-                            b = data.ideas.findIndex((i) => i.id === c.target);
-                          return (
-                            <line
-                              key={c.id}
-                              x1={150 + (a % 3) * 300}
-                              y1={70 + Math.floor(a / 3) * 160}
-                              x2={150 + (b % 3) * 300}
-                              y2={70 + Math.floor(b / 3) * 160}
-                              stroke="#b3a174"
-                              strokeWidth="3"
-                            />
-                          );
-                        })}
-                        {data.ideas.map((i, n) => (
-                          <g
-                            key={i.id}
-                            transform={`translate(${20 + (n % 3) * 300},${20 + Math.floor(n / 3) * 160})`}
-                          >
-                            <rect
-                              width="260"
-                              height="100"
-                              rx="12"
-                              fill="#fffdf6"
-                              stroke="#244f43"
-                            />
-                            <foreignObject
-                              x="14"
-                              y="12"
-                              width="232"
-                              height="78"
-                            >
-                              <div className="node">
-                                <strong>{i.title}</strong>
-                                <small>
-                                  {
-                                    data.books.find((b) => b.id === i.book)
-                                      ?.title
-                                  }
-                                </small>
-                              </div>
-                            </foreignObject>
-                          </g>
-                        ))}
-                      </svg>
-                    </div>
-                    <div className="panel">
-                      <h2>Conexões</h2>
-                      {data.connections.length ? (
-                        data.connections.map((c) => (
-                          <div key={c.id}>
-                            {data.ideas.find((i) => i.id === c.source)?.title} ↔{" "}
-                            {data.ideas.find((i) => i.id === c.target)?.title}
-                            <RecordControls kind="connection" id={c.id} title="Conexão" busy={busy} save={save} />
-                          </div>
-                        ))
-                      ) : (
-                        <p>
-                          Escolha duas ideias acima para criar a primeira
-                          conexão.
-                        </p>
-                      )}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
+            {view === "backup" && <BackupPanel busy={busy} offline={offline} setBusy={setBusy} refresh={refresh} />}
+            {view === "pdf" && <PdfExportPanel key={pdfBookId ?? "library"} books={data.books} singleBookId={pdfBookId} onBack={pdfBookId ? () => navigate("book") : undefined} offline={offline} busy={busy} setBusy={setBusy} />}
             {view === "trash" && <section className="panel">
               <h1>Lixeira</h1>
-              <p>Nada é apagado definitivamente nesta etapa. Restaurar um livro recupera seu conteúdo e mantém as datas de revisão. Itens removidos separadamente continuam na lixeira.</p>
-              <p>Para restaurar uma anotação ou conexão, restaure primeiro o livro e as ideias relacionados.</p>
+              <p>Os itens são excluídos definitivamente após 30 dias. Restaurar um livro recupera seu conteúdo; itens removidos separadamente continuam na lixeira.</p>
+              <p>Restaure o livro antes de restaurar suas fotos.</p>
               {!data.trash.length && <p>A lixeira está vazia.</p>}
               {[...data.trash].sort((a, b) => b.deleted_at - a.deleted_at).map(item => <article key={item.kind + item.id}>
                 <h3>{item.title}</h3>
                 <small>{{ book: "Livro", idea: "Ideia", question: "Pergunta", photo: "Foto", connection: "Conexão" }[item.kind] || item.kind} · {new Date(item.deleted_at).toLocaleDateString("pt-BR")}</small>
-                <button disabled={busy} onClick={() => save({ action: "restore", kind: item.kind, id: item.id })}>Restaurar</button>
+                <small>Exclusão automática em {new Date(item.deleted_at + 30 * 86400000).toLocaleDateString("pt-BR")}</small>
+                <div className="record-controls"><button disabled={busy} onClick={() => save({ action: "restore", kind: item.kind, id: item.id })}>Restaurar</button>
+                <button className="danger subtle" disabled={busy} onClick={() => setPurgeItem(item)}>Excluir para sempre</button></div>
               </article>)}
             </section>}
-            {view === "review" && (
-              <>
-                <p className="eyebrow">UM POUCO A CADA DIA</p>
-                <h1>Reencontre o que aprendeu.</h1>
-                <p>
-                  {due.length} revisões disponíveis, incluindo as atrasadas.
-                </p>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={practice}
-                    onChange={(e) => {
-                      setPractice(e.target.checked);
-                      setAttempt("");
-                      setRevealed(false);
-                    }}
-                  />{" "}
-                  Incluir perguntas futuras para praticar (a avaliação reagenda)
-                </label>
-                {q ? (
-                  <section className="panel review">
-                    <small>
-                      {data.books.find((b) => b.id === q.book)?.title} ·{" "}
-                      {new Date(q.due).toLocaleDateString("pt-BR")}
-                    </small>
-                    <h2>{q.prompt}</h2>
-                    <label>
-                      Sua tentativa
-                      <textarea
-                        value={attempt}
-                        onChange={(e) => setAttempt(e.target.value)}
-                        placeholder="Tente lembrar antes de conferir…"
-                        rows={4}
-                      />
-                    </label>
-                    {!revealed ? (
-                      <button
-                        disabled={!attempt.trim()}
-                        onClick={() => setRevealed(true)}
-                      >
-                        Conferir resposta
-                      </button>
-                    ) : (
-                      <>
-                        <div className="answer">
-                          <small>RESPOSTA</small>
-                          <p className="pre">{q.answer}</p>
-                        </div>
-                        <p>Como foi lembrar?</p>
-                        <div className="ratings">
-                          {[
-                            ["forgot", "Não lembrei"],
-                            ["hard", "Lembrei com dificuldade"],
-                            ["good", "Lembrei bem"],
-                          ].map(([rating, label]) => (
-                            <button
-                              key={rating}
-                              disabled={busy}
-                              onClick={async () => {
-                                if (
-                                  await save({
-                                    action: "review",
-                                    id: q.id,
-                                    rating,
-                                  })
-                                ) {
-                                  setAttempt("");
-                                  setRevealed(false);
-                                  setPractice(false);
-                                }
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </section>
-                ) : (
-                  <div className="empty">
-                    Tudo em dia.
-                    <p>
-                      Crie perguntas nos seus livros. Elas ficam disponíveis em
-                      1 dia.
-                    </p>
-                  </div>
-                )}
-                <p className="muted">
-                  Intervalos: 1, 3, 7, 14 e 30 dias. Boa recordação avança;
-                  dificuldade mantém; esquecimento volta a 1 dia.
-                </p>
-              </>
-            )}
           </>
         )}
       </main>
+      {bookOptions && <Modal title={bookOptions.title} busy={busy} onClose={() => setBookOptions(null)}>
+        <p>Ao apagar este livro, ele e seu conteúdo vão para a lixeira por 30 dias.</p>
+        <button type="button" className="danger" disabled={busy} onClick={async () => { if (await save({ action: "trash", kind: "book", id: bookOptions.id })) { if (selected === bookOptions.id) setView("library"); setBookOptions(null); setNotice("Livro movido para a lixeira."); } }}>Apagar livro</button>
+        <button type="button" className="subtle" disabled={busy} onClick={() => setBookOptions(null)}>Cancelar</button>
+        {error && <p role="alert" className="error">{error}</p>}
+      </Modal>}
+      {purgeItem && <Modal title="Excluir para sempre?" busy={busy} onClose={() => setPurgeItem(null)}>
+        <p>“{purgeItem.title}” será excluído definitivamente.{purgeItem.kind === "book" ? " Todo o conteúdo deste livro, incluindo resumos, histórico de versões e fotos, também será removido." : purgeItem.kind === "idea" ? " As conexões desta ideia também serão removidas." : ""} Esta ação não pode ser desfeita.</p>
+        <button type="button" className="danger" disabled={busy} onClick={async () => { if (await save({ action: "purge", kind: purgeItem.kind, id: purgeItem.id })) { setPurgeItem(null); setNotice("Item excluído definitivamente."); } }}>Excluir para sempre</button>
+        <button type="button" className="subtle" disabled={busy} onClick={() => setPurgeItem(null)}>Cancelar</button>
+        {error && <p role="alert" className="error">{error}</p>}
+      </Modal>}
       <footer>entrelinhas · Seu espaço para cultivar conhecimento.</footer>
     </>
   );

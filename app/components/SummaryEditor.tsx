@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Dictation from "./Dictation";
+import SummaryHistory from "./SummaryHistory";
 import { appendDictation } from "../../lib/dictation";
 import { acknowledgeDraft, draftKey, readDraft } from "../../lib/summary-draft";
 
-export default function SummaryEditor({ owner, book, initial, busy, offline, save, onStorageRisk }: {
+export default function SummaryEditor({ owner, book, initial, busy, offline, save, restore, onStorageRisk }: {
   owner: string; book: string; initial: string; busy: boolean; offline: boolean;
   save: (text: string) => Promise<boolean>;
+  restore: (id: string) => Promise<boolean>;
   onStorageRisk: (risk: boolean) => void;
 }) {
   const key = draftKey(owner, book);
@@ -16,6 +18,7 @@ export default function SummaryEditor({ owner, book, initial, busy, offline, sav
   const [message, setMessage] = useState("");
   const [storageFailed, setStorageFailed] = useState(false);
   const [dictating, setDictating] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const current = useRef(initial);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -69,7 +72,7 @@ export default function SummaryEditor({ owner, book, initial, busy, offline, sav
     setMessage("");
   }
   return <div className="panel">
-    <h2>O que ficou da leitura</h2>
+    <div className="summary-heading"><h2>O que ficou da leitura</h2><button type="button" className="subtle" disabled={busy || offline || dictating} onClick={() => setHistoryOpen(true)}>Histórico</button></div>
     <label>Resumo e transcrição
       <textarea rows={9} value={text} disabled={!ready} maxLength={100000}
         onChange={(event) => change(event.target.value)}
@@ -88,5 +91,12 @@ export default function SummaryEditor({ owner, book, initial, busy, offline, sav
         setMessage("");
       }
     }}>Descartar rascunho</button>}
+    {historyOpen && <SummaryHistory book={book} busy={busy} onClose={() => setHistoryOpen(false)} onRestore={async version => {
+      if (dirty && !window.confirm("Usar esta versão substitui o rascunho ainda não salvo. Deseja continuar?")) return;
+      if (!await restore(version.id)) throw Error("Não foi possível recuperar esta versão. Confira sua conexão e tente novamente.");
+      current.current = version.summary; setText(version.summary); setBase(version.summary);
+      try { sessionStorage.removeItem(key); setStorageFailed(false); } catch { setStorageFailed(true); }
+      setMessage(""); setHistoryOpen(false);
+    }} />}
   </div>;
 }

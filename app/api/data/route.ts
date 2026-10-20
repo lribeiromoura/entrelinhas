@@ -1,3 +1,7 @@
+import { summaryVersions } from "../../../lib/summary-server";
+import { trashService } from "../../../lib/trash-server";
+import { saveMapLayout } from "../../../lib/map-layout";
+import { validPhotoSignature } from "../../../lib/photo-signature";
 import { changeRecord } from "../../../lib/records";
 import { auth } from "../../../lib/auth";
 import { db } from "../../../lib/db";
@@ -16,6 +20,7 @@ export async function GET(req: Request) {
   if (!s)
     return Response.json({ error: "Entre na sua conta." }, { status: 401 });
   try {
+    await trashService.expire(s.user.id);
     return Response.json(await readLibrary(s.user.id), {
       headers: { "Cache-Control": "no-store" },
     });
@@ -34,6 +39,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Origem inválida." }, { status: 403 });
   const owner = s.user.id;
   try {
+    await trashService.expire(owner);
     if (req.headers.get("content-type")?.includes("multipart/form-data")) {
       const form = await req.formData();
       const file = form.get("photo");
@@ -46,16 +52,7 @@ export async function POST(req: Request) {
       )
         throw Error("Envie JPEG, PNG ou WebP de até 3 MB após otimização.");
       const bytes = Buffer.from(await file.arrayBuffer());
-      const valid =
-        file.type === "image/jpeg"
-          ? bytes[0] === 255 && bytes[1] === 216
-          : file.type === "image/png"
-            ? bytes
-                .subarray(0, 8)
-                .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-            : bytes.toString("ascii", 0, 4) === "RIFF" &&
-              bytes.toString("ascii", 8, 12) === "WEBP";
-      if (!valid) throw Error("Imagem inválida.");
+      if (!validPhotoSignature(file.type, bytes)) throw Error("Imagem inválida.");
       const optimized = await normalizePhoto(bytes);
       const id = crypto.randomUUID();
       const kind = form.get("kind") === "cover" ? "cover" : "note";
@@ -97,7 +94,9 @@ export async function POST(req: Request) {
           throw Error("Preencha os campos corretamente.");
         return b[key].trim();
       };
-      if (["edit", "trash", "restore"].includes(b.action))
+      if (b.action === "purge") await trashService.purge(owner, b.kind, b.id);
+      else if (b.action === "mapPositions") await saveMapLayout(db, owner, b.positions);
+      else if (["edit", "trash", "restore"].includes(b.action))
         await changeRecord(db, owner, b);
       else if (b.action === "book")
         await db.run(
@@ -149,16 +148,8 @@ export async function POST(req: Request) {
           b.book,
           owner,
         );
-      } else if (b.action === "summary") {
-        await requireBook(b.book, owner);
-        if (typeof b.summary !== "string" || b.summary.length > 100000)
-          throw Error("Resumo muito longo.");
-        await db.run(
-          "UPDATE books SET summary=? WHERE id=? AND owner=?",
-          b.summary,
-          b.book,
-          owner,
-        );
+      } else if (b.action === "summary" || b.action === "restoreSummary") {
+        await summaryVersions.save(owner, b.book, b.summary, b.action === "restoreSummary" ? b.version : undefined);
       } else if (b.action === "idea") {
         await requireBook(b.book, owner);
         await db.run(

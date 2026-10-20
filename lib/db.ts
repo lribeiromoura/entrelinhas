@@ -41,7 +41,7 @@ export interface DataStore {
     ...args: unknown[]
   ): Promise<T | undefined>;
   run(sql: string, ...args: unknown[]): Promise<void>;
-  transaction<T>(fn: (tx: DataStore) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: DataStore) => Promise<T>, options?: { snapshot?: boolean }): Promise<T>;
 }
 function store(client?: PoolClient, inside = false): DataStore {
   const pg = client || pgPool;
@@ -66,12 +66,12 @@ function store(client?: PoolClient, inside = false): DataStore {
     async run(sql: string, ...args: unknown[]) {
       await execute(sql, args, false);
     },
-    async transaction<T>(fn: (tx: DataStore) => Promise<T>) {
+    async transaction<T>(fn: (tx: DataStore) => Promise<T>, options?: { snapshot?: boolean }) {
       if (inside) throw Error("Transação aninhada não suportada.");
       if (pgPool) {
         const connection = await pgPool.connect();
         try {
-          await connection.query("BEGIN");
+          await connection.query(options?.snapshot ? "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY" : "BEGIN");
           const result = await fn(store(connection, true));
           await connection.query("COMMIT");
           return result;

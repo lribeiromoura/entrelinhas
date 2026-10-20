@@ -74,3 +74,28 @@ Aplicação local em Next.js e TypeScript para uma biblioteca pessoal privada po
 - Edição de título/autor do livro, título/descrição de ideia e pergunta/resposta, sem alterar agenda.
 - Lixeira restaurável para livros, ideias, perguntas, fotos e conexões. Nenhum descarte definitivo. Livros removidos ocultam filhos; ideias removidas ocultam conexões. Restauração não ressuscita itens removidos individualmente. Fotos ocultas retornam 404 mesmo ao proprietário.
 - Migrações aditivas deleted_at em SQLite e PostgreSQL; filtros e mutações mantêm isolamento por proprietário. Buckets e tabelas permanecem privados.
+
+## Incremento: backup e restauração com fotos
+- JSON versionado com formato `entrelinhas`, versão 1, data, livros, ideias, perguntas, conexões e fotos em base64 com tamanho/SHA-256. Inclui `deleted_at`, capas enviadas, IDs de capas externas e agenda; exclui conta, senha, sessões, caminhos do storage e rascunhos não salvos.
+- Prévia com contagens e itens na lixeira; transferência sequencial de fotos e conclusão transacional. IDs e relações são remapeados para a conta atual; nenhum dado existente é substituído. Reenvio do mesmo arquivo retoma preparação ou informa conclusão anterior, sem duplicar.
+- Validação de versão, tipos, limites, duplicatas, relações, agenda, MIME/assinatura, decodificação real e hash. Imagens restauradas passam pela otimização vigente. Bibliotecas parciais não são publicadas se uma etapa falhar.
+- Exportação lê metadados em snapshot consistente. Fotos são imutáveis e carregadas por ID com verificação de proprietário, inclusive itens da lixeira.
+- Preparações privadas expiram em 24h e são limpas por conta ao iniciar outra restauração. Retentativas são idempotentes e o commit usa bloqueio do registro da preparação. Limites: JSON 100 MB, texto/metadados 2 MB, 5.000 registros por tipo e foto 3 MB.
+- Download contém conteúdo privado sem criptografia. Fotos enviadas são incluídas; capas externas preservam referência e dependem da internet. Não se trata de sincronização offline nem cópia da conta de acesso.
+
+## Incremento: mapa interativo e exportação PDF
+- O mapa salva coordenadas inteiras de ideias ativas por proprietário, com transação atômica e verificação de permissões. Tem zoom, movimento, organização, busca, teclado e seleção de conexões. Backups antigos sem coordenadas continuam válidos.
+- A aba Exportar PDF permite selecionar livros e seções; a página do livro abre a exportação restrita àquele volume. O documento A4 é montado no cliente com dados privados da sessão; fotos JPEG/PNG/WebP são obtidas por endpoint autenticado e incorporadas, convertendo WebP no navegador. Apenas registros ativos salvos são incluídos. Capas externas não são incorporadas.
+
+## Incremento: estante compacta e retenção da lixeira
+- Cabeçalho com menu lateral, marca ◈ entrelinhas centralizada e Sair. Cadastro de livro em dialog modal; mensagem global de salvamento flutuante no rodapé, dispensável e temporária.
+- Pressão prolongada de 600 ms e menu alternativo acessível no cartão abrem a remoção recuperável. Movimento de arraste/rolagem cancela a pressão.
+- Exclusão física permitida somente para registros já na lixeira, com proprietário autenticado, validação de origem e confirmação visual. Remoção transacional elimina dependências e agenda arquivos privados em tabela restrita com RLS.
+- Retenção de 30 dias verificada no acesso e cron diário autenticado com CRON_SECRET. Falhas do storage mantêm a fila para nova tentativa; não revertem a remoção confirmada.
+
+## Escopo atual: caderno simplificado e versões dos resumos
+Esta decisão substitui a presença de ideias, mapa, perguntas e revisões na interface. Os dados legados permanecem disponíveis para compatibilidade de backups; não há apagamento em massa na migração. O PDF oferece resumo atual, fotos e capas enviadas.
+
+As ações do livro ficam em menu contextual: exportar, editar em modal, configurar capa em modal e mover para lixeira. Fotos usam um seletor único, sem formulário exclusivo de câmera.
+
+`summary_versions` guarda instantâneos salvos imutáveis por conta/livro. Salvar mudanças e recuperar versões ocorre em transação com bloqueio do livro; texto idêntico não cria entradas adicionais. Recuperação gera nova versão atual, preservando a anterior. Histórico com paginação de 20 itens e leitura privada do texto sob demanda; rascunhos não entram até salvar. Backups incluem as versões com referências remapeadas, mantendo compatibilidade com arquivos antigos.
