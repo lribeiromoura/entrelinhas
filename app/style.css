@@ -624,3 +624,7 @@ button.danger.subtle { color: #8a352a; border-color: #d9b7af; background: transp
   .summary-heading h2 { font-size: 23px; }
   .summary-heading button { padding: 10px 12px; font-size: 13px; }
 }
+
+.reading-filter { display: flex; flex-direction: column; gap: .4rem; max-width: 22rem; margin: 1rem 0; }
+.reading-filter select { padding: .65rem; border: 1px solid var(--line, #ccc); border-radius: .5rem; font: inherit; background: var(--paper, #fff); color: inherit; }
+.reading-badge { display: inline-block; margin-top: .4rem; font-size: .75rem; opacity: .8; }

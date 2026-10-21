@@ -54,7 +54,7 @@ Os testes de integração sobem uma instância local temporária em `localhost:3
 - O uso atual está concentrado em livros, resumos com histórico e fotos. Recursos antigos de ideias, mapa e revisão foram retirados da interface.
 - Sem recuperação de senha, confirmação de e-mail ou provedor social. Guarde sua senha.
 - Não há OCR, geração por IA, colaboração, push nem edição offline completa.
-- Texto não salvo fica apenas na tela atual. Em uma falha de salvamento, os campos permanecem preenchidos; fechar ou recarregar a página pode perder o rascunho.
+- Texto não salvo fica guardado neste navegador por conta e livro. Limpar os dados do navegador ou sair explicitamente da conta remove os rascunhos; eles não são sincronizados entre dispositivos.
 - Fotos novas são otimizadas para JPEG, com até 2400 pixels no maior lado, e têm os metadados EXIF removidos. A entrada aceita até 8 MB e o envio ao servidor até 3 MB; imagens antigas locais permanecem intactas.
 - Instalação da PWA e acesso à câmera variam entre dispositivos. Não foi testado em um telefone físico. Uma instalação local no computador não sincroniza automaticamente com um telefone.
 - A configuração padrão atende uma instância local. A integração opcional com Supabase e a preparação para Vercel estão incluídas; conexão e publicação exigem configurar as variáveis privadas descritas abaixo. Backup automatizado ainda não está incluído.
@@ -70,7 +70,7 @@ Na página de um livro, clique em **Ditar resumo** e autorize o microfone no nav
 
 O aplicativo não grava nem armazena um arquivo de áudio. O serviço de reconhecimento do navegador pode receber o áudio para transcrição. Não há chave de API nem cobrança de transcrição pelo aplicativo; disponibilidade, processamento e conexão dependem do navegador. Esta versão não garante reconhecimento local nem offline. Se o navegador não oferecer suporte, digitação continua disponível e uma explicação aparece na tela.
 
-O ditado para ao sair da página do livro. Nenhum texto é salvo automaticamente; recarregar ou sair antes de salvar pode perder o rascunho. O botão de salvar fica bloqueado durante o ditado para evitar salvar uma transcrição incompleta. Falhas do microfone ou da rede não apagam o texto já recebido.
+O ditado para ao sair da página do livro. O texto é guardado automaticamente como rascunho neste navegador; use Salvar resumo para persistir na biblioteca. O botão de salvar fica bloqueado durante o ditado para evitar salvar uma transcrição incompleta. Falhas do microfone ou da rede não apagam o texto já recebido.
 
 Verificação: eventos de fala, trechos provisórios/finais, duplicatas, preservação do texto, interrupção, permissão negada, falha de rede e encerramento ao trocar de livro são testados com um reconhecimento simulado. O microfone real não é acionado por esses testes.
 
@@ -101,7 +101,7 @@ As imagens são baixadas pelo servidor somente após conferir a sessão e o prop
 Referências: [conexões Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres), [integração Vercel](https://supabase.com/docs/guides/integrations/vercel-marketplace), [limite de requisições Vercel](https://vercel.com/docs/functions/limitations).
 
 ### Rascunhos e lixeira
-O resumo guarda rascunho automaticamente na sessão da aba, separado por conta e livro. Volte ao livro para recuperar; clique em **Salvar resumo** para persistir no servidor. Fechar a aba pode apagar rascunhos. O navegador avisa antes de sair, mas esse aviso pode não aparecer quando o sistema encerra o aplicativo. Sair da conta limpa os rascunhos após confirmação.
+O resumo guarda rascunho automaticamente no armazenamento persistente deste navegador, separado por conta e livro. Volte ao livro, inclusive após fechar a aba, para recuperar; clique em **Salvar resumo** para persistir no servidor. O navegador avisa antes de sair, mas esse aviso pode não aparecer quando o sistema encerra o aplicativo. Sair da conta limpa os rascunhos após confirmação.
 
 Use **Editar** para corrigir livros, ideias e perguntas. **Mover para lixeira** oculta registros sem excluí-los definitivamente. A aba **Lixeira** permite restaurar. Restaure primeiro livros e ideias necessários; a agenda das revisões é mantida. Itens removidos separadamente precisam ser restaurados separadamente. Fotos de itens ocultos deixam de ser acessíveis. O deploy executa migrações aditivas compatíveis com os dados existentes.
 
@@ -128,3 +128,7 @@ A retenção é de 30 dias a partir da remoção. A biblioteca e os metadados de
 Migração aditiva cria `summary_versions`, privada por conta e com RLS no PostgreSQL. Salvamento e recuperação são transacionais: o resumo anterior e o novo são preservados; salvar texto idêntico não duplica versões. Um resumo anterior à implantação do histórico é preservado na primeira alteração. A consulta lista 20 entradas por página e carrega o texto completo de uma versão sob demanda; livros na lixeira e versões de outra conta são recusados. Excluir definitivamente um livro elimina também seu histórico.
 
 O JSON de backup inclui `summaryVersions`, com identificação e livro remapeados ao restaurar. Backups antigos sem esse campo continuam aceitos. O limite de 2 MB de texto do backup inclui o histórico. O PDF usa apenas o resumo atual, conforme as seções selecionadas.
+
+### Status de leitura e rascunhos duráveis
+Livros têm status Quero ler, Lendo, Concluído ou Pausado, alterável no caderno e filtrável na estante. Livros existentes e backups antigos começam em Quero ler. O backup preserva o status.
+Rascunhos agora usam armazenamento persistente deste navegador por conta e livro, recuperáveis após fechar a aba. Rascunhos antigos da sessão são migrados ao abrir o editor. Não sincronizam entre dispositivos e podem ser apagados ao limpar os dados do navegador. Sair explicitamente da conta continua pedindo confirmação e removendo seus rascunhos. Salvar ou descartar limpa o rascunho correspondente.

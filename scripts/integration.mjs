@@ -110,6 +110,16 @@ try {
   let d = await get(a);
   const [one, two] = d.books;
   assert.equal(one.cover_id, 12345);
+  if (!production) {
+    assert.equal(one.reading_status, "want");
+    for (const status of ["reading", "completed", "paused", "want"]) {
+      await post(a, { action: "readingStatus", book: one.id, status });
+      assert.equal((await get(a)).books.find(book => book.id === one.id).reading_status, status);
+    }
+    await post(a, { action: "readingStatus", book: one.id, status: "invalid" }, 400);
+    await post(b, { action: "readingStatus", book: one.id, status: "completed" }, 400);
+    assert.equal((await get(a)).books.find(book => book.id === one.id).reading_status, "want");
+  }
   await post(a, {
     action: "summary",
     book: one.id,

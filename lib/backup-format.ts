@@ -1,9 +1,10 @@
+import { isReadingStatus, type ReadingStatus } from "./reading-status";
 import { validPosition } from "./idea-map";
 // Portable, versioned format. No account, session, password, or storage credentials.
 export const maxBackupFileBytes = 100 * 1024 * 1024;
 export const maxBackupManifestBytes = 2 * 1024 * 1024;
 export const maxBackupPhotoBytes = 3 * 1024 * 1024;
-export type BackupBook = { id: string; title: string; author: string; summary: string; cover_id: number | null; cover_photo: string | null; deleted_at: number | null };
+export type BackupBook = { reading_status?: ReadingStatus; id: string; title: string; author: string; summary: string; cover_id: number | null; cover_photo: string | null; deleted_at: number | null };
 export type BackupIdea = { id: string; book: string; title: string; description: string; deleted_at: number | null; map_x: number | null; map_y: number | null };
 export type BackupQuestion = { id: string; book: string; prompt: string; answer: string; stage: number; due: number; deleted_at: number | null };
 export type BackupConnection = { id: string; source: string; target: string; deleted_at: number | null };
@@ -41,7 +42,10 @@ export function parseBackup(value: unknown, includeData = false): BackupManifest
   if (raw.format !== "entrelinhas" || raw.version !== 1) throw invalid();
   const createdAt = text(raw.createdAt, 40);
   if (!Number.isFinite(Date.parse(createdAt))) throw invalid();
-  const books = list(raw.books).map(row => ({ id: row.id, title: text(row.title, 500), author: text(row.author, 500), summary: text(row.summary, 100000, true), cover_id: row.cover_id === null ? null : integer(row.cover_id, Number.MAX_SAFE_INTEGER), cover_photo: row.cover_photo === null ? null : text(row.cover_photo, 128), deleted_at: deleted(row.deleted_at) }));
+  const books = list(raw.books).map(row => {
+    const status = row.reading_status === undefined ? "want" : row.reading_status;
+    if (!isReadingStatus(status)) throw invalid();
+    return ({ reading_status: status, id: row.id, title: text(row.title, 500), author: text(row.author, 500), summary: text(row.summary, 100000, true), cover_id: row.cover_id === null ? null : integer(row.cover_id, Number.MAX_SAFE_INTEGER), cover_photo: row.cover_photo === null ? null : text(row.cover_photo, 128), deleted_at: deleted(row.deleted_at) }); });
   const summaryVersions = list(raw.summaryVersions ?? []).map(row => ({ id: row.id, book: text(row.book, 128), summary: text(row.summary, 100000, true), created_at: integer(row.created_at) }));
   const ideas = list(raw.ideas).map(row => {
     const x = row.map_x ?? null, y = row.map_y ?? null;

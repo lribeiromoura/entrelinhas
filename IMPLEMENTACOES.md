@@ -58,3 +58,8 @@ Endereço: https://entrelinhas-five-iota.vercel.app
 - Histórico de resumo mantém versões salvas, permite consulta e recuperação como atual; recuperação preserva todas as versões e atualiza o editor. Backup/restauração inclui o histórico; arquivos antigos continuam aceitos.
 - 40 testes unitários passaram em SQLite/PostgreSQL, com legados, idempotência, recuperação, isolamento, paginação e rollback. Compilação e testes HTTP passaram. Navegador confirmou duas versões, recuperação da primeira, persistência após recarregar e manutenção da segunda.
 - Provas: outputs/livro-simplificado.png e outputs/historico-resumo.png. Prévia isolada em localhost:3107. Sem commit/deploy.
+
+## Status de leitura e rascunhos duráveis — implementados localmente
+- Quatro status no caderno e filtros com contagem na estante; migrações aditivas SQLite/PostgreSQL, padrão Quero ler, validação e isolamento no servidor. Backup preserva status e aceita arquivos antigos.
+- Rascunhos persistem no navegador por conta e livro após fechar a aba; migração da sessão anterior, recuperação, descarte e confirmação de salvamento preservam o comportamento existente. Logout explícito limpa os dois armazenamentos após confirmação.
+- Validação: 41 testes passaram, build e integração HTTP com banco temporário passaram. Após acrescentar asserções de roundtrip dos status, os 9 testes de backup/rascunhos também passaram. Integração validou quatro status, valor inválido e recusa entre contas. Sem commit/deploy.

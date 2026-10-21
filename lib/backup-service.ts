@@ -51,7 +51,7 @@ export function createBackupService(db: DataStore, files: BackupFiles) {
   return {
     async metadata(owner: string): Promise<BackupMetadata> {
       const result = await db.transaction(async tx => {
-        const books = await tx.all<BackupMetadata["books"][number]>("SELECT id,title,author,summary,cover_id,cover_photo,deleted_at FROM books WHERE owner=? ORDER BY id", owner);
+        const books = await tx.all<BackupMetadata["books"][number]>("SELECT id,title,author,summary,cover_id,cover_photo,deleted_at,reading_status FROM books WHERE owner=? ORDER BY id", owner);
         const summaryVersions = await tx.all<NonNullable<BackupMetadata["summaryVersions"]>[number]>("SELECT id,book,summary,created_at FROM summary_versions WHERE owner=? ORDER BY created_at,id", owner);
         const ideas = await tx.all<BackupMetadata["ideas"][number]>("SELECT id,book,title,description,deleted_at,map_x,map_y FROM ideas WHERE owner=? ORDER BY id", owner);
         const questions = await tx.all<BackupMetadata["questions"][number]>("SELECT id,book,prompt,answer,stage,due,deleted_at FROM questions WHERE owner=? ORDER BY id", owner);
@@ -126,7 +126,7 @@ export function createBackupService(db: DataStore, files: BackupFiles) {
         const manifest: StoredManifest = JSON.parse(job.manifest);
         const photos = await tx.all<StagedPhoto>("SELECT source_id,photo_id,mime,bytes,storage_path FROM backup_import_photos WHERE import_id=?", id);
         if (photos.length !== manifest.photos.length || manifest.photos.some(row => !photos.some(photo => photo.source_id === row.source_id && photo.photo_id === row.id))) throw new BackupError("Ainda faltam fotos. Tente novamente para continuar a restauração.");
-        await insertRows(tx, "books", ["id", "owner", "title", "author", "summary", "cover_id", "cover_photo", "deleted_at"], manifest.books.map(row => [row.id, owner, row.title, row.author, row.summary, row.cover_id, row.cover_photo, row.deleted_at]));
+        await insertRows(tx, "books", ["id", "owner", "title", "author", "summary", "cover_id", "cover_photo", "deleted_at", "reading_status"], manifest.books.map(row => [row.id, owner, row.title, row.author, row.summary, row.cover_id, row.cover_photo, row.deleted_at, row.reading_status ?? "want"]));
         await insertRows(tx, "summary_versions", ["id", "owner", "book", "summary", "created_at"], (manifest.summaryVersions ?? []).map(row => [row.id, owner, row.book, row.summary, row.created_at]));
         await insertRows(tx, "ideas", ["id", "owner", "book", "title", "description", "deleted_at", "map_x", "map_y"], manifest.ideas.map(row => [row.id, owner, row.book, row.title, row.description, row.deleted_at, row.map_x, row.map_y]));
         await insertRows(tx, "questions", ["id", "owner", "book", "prompt", "answer", "stage", "due", "deleted_at"], manifest.questions.map(row => [row.id, owner, row.book, row.prompt, row.answer, row.stage, row.due, row.deleted_at]));

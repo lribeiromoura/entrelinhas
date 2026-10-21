@@ -28,3 +28,5 @@ CREATE TABLE IF NOT EXISTS storage_deletions(id TEXT PRIMARY KEY,owner TEXT NOT 
 
 CREATE TABLE IF NOT EXISTS summary_versions(id TEXT PRIMARY KEY,owner TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,book TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,summary TEXT NOT NULL,created_at BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS summary_versions_book_idx ON summary_versions(owner,book,created_at);
+
+ALTER TABLE books ADD COLUMN IF NOT EXISTS reading_status TEXT NOT NULL DEFAULT 'want' CHECK(reading_status IN ('want','reading','completed','paused'));

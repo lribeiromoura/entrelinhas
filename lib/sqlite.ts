@@ -14,6 +14,7 @@ sqlite
   .transaction(() => {
     const columns = sqlite.pragma("table_info(books)") as { name: string }[];
     for (const [name, type] of [
+      ["reading_status", "TEXT NOT NULL DEFAULT 'want' CHECK(reading_status IN ('want','reading','completed','paused'))"],
       ["cover_id", "INTEGER"],
       ["cover_photo", "TEXT"],
     ]) {

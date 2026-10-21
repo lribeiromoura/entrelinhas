@@ -7,6 +7,7 @@ import BackupPanel from "./components/BackupPanel";
 import PdfExportPanel from "./components/PdfExportPanel";
 import RecordControls from "./components/RecordControls";
 import SummaryEditor from "./components/SummaryEditor";
+import { readingStatuses, type ReadingStatus } from "../lib/reading-status";
 import { clearOwnerDrafts, hasOwnerDrafts } from "../lib/summary-draft";
 import { optimizePhoto } from "../lib/optimize-photo";
 const auth = createAuthClient();
@@ -15,6 +16,7 @@ type Book = {
   title: string;
   author: string;
   summary: string;
+  reading_status: ReadingStatus;
   cover_id?: number | null;
   cover_photo?: string | null;
 };
@@ -63,6 +65,7 @@ function BookCover({ book, index = 0 }: { book: Book; index?: number }) {
 export default function Home() {
   const { data: session, isPending } = auth.useSession();
   const [data, setData] = useState<Data>(empty);
+  const [statusFilter, setStatusFilter] = useState("all");
   const [view, setView] = useState("library");
   const [menuOpen, setMenuOpen] = useState(false);
   const [addBookOpen, setAddBookOpen] = useState(false);
@@ -133,7 +136,7 @@ export default function Home() {
     if (!owner) return;
     const warn = (event: BeforeUnloadEvent) => {
       try {
-        if (hasOwnerDrafts(sessionStorage, owner)) {
+        if (hasOwnerDrafts(localStorage, owner)) {
           event.preventDefault();
           event.returnValue = "";
         }
@@ -214,11 +217,11 @@ export default function Home() {
             disabled={busy}
             onClick={async () => {
               let pendingDraft = draftAtRisk;
-              try { pendingDraft ||= hasOwnerDrafts(sessionStorage, session.user.id); } catch { pendingDraft = true; }
-              if (pendingDraft && !window.confirm("Sair da conta? Os rascunhos desta aba serão apagados. Salve os resumos que deseja manter antes de sair.")) return;
+              try { pendingDraft ||= hasOwnerDrafts(localStorage, session.user.id) || hasOwnerDrafts(sessionStorage, session.user.id); } catch { pendingDraft = true; }
+              if (pendingDraft && !window.confirm("Sair da conta? Os rascunhos deste navegador serão apagados. Salve os resumos que deseja manter antes de sair.")) return;
               const result = await auth.signOut();
               if (result.error) { setError("Não foi possível sair. Tente novamente."); return; }
-              try { clearOwnerDrafts(sessionStorage, session.user.id); } catch {}
+              try { clearOwnerDrafts(localStorage, session.user.id); clearOwnerDrafts(sessionStorage, session.user.id); } catch {}
               setMenuOpen(false);
               setSelected("");
               setView("library");
@@ -255,7 +258,7 @@ export default function Home() {
       </>}
       {offline && (
         <aside className="offline" role="status">
-          Você está sem conexão. Reconecte para carregar e salvar. Rascunhos de resumo ficam apenas nesta aba até você salvar; mantenha a aba aberta.
+          Você está sem conexão. Reconecte para carregar e salvar. Rascunhos de resumo ficam neste navegador até você salvar. Reconecte para carregar a biblioteca.
         </aside>
       )}
       <main>
@@ -366,7 +369,14 @@ export default function Home() {
                   <h1>Sua estante <small>{data.books.length} {data.books.length === 1 ? "livro" : "livros"}</small></h1>
                   <button type="button" disabled={busy} onClick={() => { setResults([]); setAddBookOpen(true); }}>Adicionar Livro</button>
                 </div>
+                <label className="reading-filter">Filtrar por status
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="all">Todos ({data.books.length})</option>
+                    {Object.entries(readingStatuses).map(([value, label]) => <option key={value} value={value}>{label} ({data.books.filter(b => b.reading_status === value).length})</option>)}
+                  </select>
+                </label>
                 <section>
+                    {data.books.length > 0 && statusFilter !== "all" && !data.books.some(b => b.reading_status === statusFilter) && <p className="empty">Nenhum livro neste status.</p>}
                     {!data.books.length && (
                       <div className="empty">
                         Sua estante começa com uma leitura.
@@ -374,11 +384,12 @@ export default function Home() {
                       </div>
                     )}
                     <div className="shelf">
-                      {data.books.map((b, i) => (
+                      {data.books.filter(b => statusFilter === "all" || b.reading_status === statusFilter).map((b, i) => (
                         <BookCard key={b.id} title={b.title} onOpen={() => open(b)} onOptions={() => setBookOptions(b)}>
                           <BookCover book={b} index={i} />
                           <strong>{b.title}</strong>
                           <small>{b.author}</small>
+                          <span className="reading-badge">{readingStatuses[b.reading_status]}</span>
                         </BookCard>
                       ))}
                     </div>
@@ -482,6 +493,11 @@ export default function Home() {
                     <button type="button" className="danger subtle" disabled={busy} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setBookOptions(book); }}>Mover para lixeira</button>
                   </div></details>
                 </div>
+                <label className="reading-filter">Status de leitura
+                  <select value={book.reading_status} disabled={busy || offline} onChange={e => save({ action: "readingStatus", book: book.id, status: e.target.value })}>
+                    {Object.entries(readingStatuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
                 {bookDialog === "edit" && <Modal title="Editar livro" busy={busy} onClose={() => setBookDialog(null)}>
                   <form onSubmit={async event => { event.preventDefault(); const fields = Object.fromEntries(new FormData(event.currentTarget)); if (await save({ action: "edit", kind: "book", id: book.id, ...fields })) setBookDialog(null); }}>
                     <label>Título<input name="title" required maxLength={500} defaultValue={book.title} /></label>

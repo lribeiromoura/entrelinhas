@@ -14,7 +14,7 @@ const digest = createHash("sha256").update(bytes).digest("hex");
 function fixture() {
   return {
     format: "entrelinhas", version: 1, createdAt: "2026-10-19T12:00:00Z",
-    books: [{ id: "book", title: "Livro", author: "Autora", summary: "Resumo", cover_id: 123, cover_photo: "cover", deleted_at: null }, { id: "trashed-book", title: "Na lixeira", author: "Autor", summary: "Preservar", cover_id: null, cover_photo: null, deleted_at: 1234 }],
+    books: [{ id: "book", title: "Livro", author: "Autora", summary: "Resumo", reading_status: "paused", cover_id: 123, cover_photo: "cover", deleted_at: null }, { id: "trashed-book", title: "Na lixeira", author: "Autor", summary: "Preservar", cover_id: null, cover_photo: null, deleted_at: 1234 }],
     summaryVersions: [{ id: "v1", book: "book", summary: "Resumo antigo", created_at: 1700000000000 }, { id: "v2", book: "book", summary: "Resumo", created_at: 1700000000001 }],
     ideas: [{ id: "i1", book: "book", title: "Ideia 1", description: "Descrição 1", deleted_at: null, map_x: -125, map_y: 360 }, { id: "i2", book: "trashed-book", title: "Ideia 2", description: "Descrição 2", deleted_at: 4321 }],
     connections: [{ id: "c1", source: "i1", target: "i2", deleted_at: 5678 }],
@@ -24,12 +24,15 @@ function fixture() {
 }
 test("Backup valida vínculos, versão, tamanhos e campos sem importar credenciais", () => {
   const input = fixture(); input.owner = "Outra pessoa"; input.password = "não importar";
+  assert.equal(parseBackup(input).books[0].reading_status, "paused");
+  assert.equal(parseBackup(input).books[1].reading_status, "want");
   assert.equal(parseBackup(input).owner, undefined);
   assert.equal(parseBackup(input).password, undefined);
   assert.equal(parseBackup(input).photos[0].data, undefined);
   assert.deepEqual(photoBytes(photoBase64(bytes)), new Uint8Array(bytes));
   for (const change of [
     b => b.version = 2,
+    b => b.books[0].reading_status = "invalid",
     b => b.books.push(b.books[0]),
     b => b.ideas[0].book = "ausente",
     b => b.summaryVersions[0].book = "ausente",
@@ -112,6 +115,8 @@ for (const kind of ["sqlite", "postgres"]) test(`Restauração ${kind}: fotos, l
     assert.equal(result.alreadyImported, false); assert.equal(result.counts.photos, 3);
     const restored = await service.metadata("ana");
     assert.equal(restored.books.length, 3);
+    assert.equal(restored.books.find(b => b.title === "Livro").reading_status, "paused");
+    assert.equal(restored.books.find(b => b.title === "Na lixeira").reading_status, "want");
     assert.deepEqual(restored.summaryVersions.map(row => row.summary), ["Resumo antigo", "Resumo"]);
     assert.ok(restored.summaryVersions.every(row => row.book === restored.books.find(book => book.title === "Livro").id));
     assert.equal(restored.books.find(b => b.id === "existing").summary, "Não alterar");

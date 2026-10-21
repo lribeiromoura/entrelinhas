@@ -35,3 +35,18 @@ test("Saída limpa somente rascunhos da conta atual", () => {
   assert.equal(readDraft(s, draftKey("ab", "1")).text, "x");
   assert.equal(s.getItem("unrelated"), "value");
 });
+
+ test("Migração preserva rascunho após nova sessão e prioriza rascunho persistente", async () => {
+  const { recoverDraft } = await import("../lib/summary-draft.ts");
+  const persistent = storage(), legacy = storage(), key = draftKey("ana", "livro");
+  legacy.setItem(key, JSON.stringify({ text: "legado", base: "" }));
+  assert.equal(recoverDraft(persistent, legacy, key).text, "legado");
+  assert.equal(legacy.getItem(key), null);
+  assert.equal(recoverDraft(persistent, storage(), key).text, "legado");
+  legacy.setItem(key, JSON.stringify({ text: "antigo", base: "" }));
+  assert.equal(recoverDraft(persistent, legacy, key).text, "legado");
+  const failing = { ...storage(), setItem() { throw Error("quota"); } };
+  legacy.setItem(key, JSON.stringify({ text: "preservar", base: "" }));
+  assert.throws(() => recoverDraft(failing, legacy, key), /quota/);
+  assert.equal(readDraft(legacy, key).text, "preservar");
+});

@@ -40,3 +40,10 @@ export function hasOwnerDrafts(storage: DraftStorage, owner: string) {
   }
   return false;
 }
+
+export function recoverDraft(persistent: DraftStorage, legacy: DraftStorage, key: string): SummaryDraft | null {
+  const draft = readDraft(persistent, key) ?? readDraft(legacy, key);
+  if (draft) persistent.setItem(key, JSON.stringify(draft));
+  legacy.removeItem(key);
+  return draft;
+}

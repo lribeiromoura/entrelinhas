@@ -1,3 +1,4 @@
+import { isReadingStatus } from "../../../lib/reading-status";
 import { summaryVersions } from "../../../lib/summary-server";
 import { trashService } from "../../../lib/trash-server";
 import { saveMapLayout } from "../../../lib/map-layout";
@@ -95,6 +96,13 @@ export async function POST(req: Request) {
         return b[key].trim();
       };
       if (b.action === "purge") await trashService.purge(owner, b.kind, b.id);
+      else if (b.action === "readingStatus") {
+        if (!isReadingStatus(b.status)) throw Error("Status de leitura inválido.");
+        await db.transaction(async tx => {
+          await requireBook(b.book, owner, tx);
+          await tx.run("UPDATE books SET reading_status=? WHERE id=? AND owner=? AND deleted_at IS NULL", b.status, b.book, owner);
+        });
+      }
       else if (b.action === "mapPositions") await saveMapLayout(db, owner, b.positions);
       else if (["edit", "trash", "restore"].includes(b.action))
         await changeRecord(db, owner, b);
