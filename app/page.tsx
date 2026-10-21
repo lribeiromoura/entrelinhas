@@ -48,7 +48,8 @@ function BookCover({ book, index = 0 }: { book: Book; index?: number }) {
         <img
           src={src}
           alt={"Capa de " + book.title}
-          loading="lazy"
+          loading={index < 10 ? "eager" : "lazy"}
+          fetchPriority={index < 2 ? "high" : "auto"}
           referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
         />
@@ -81,6 +82,19 @@ export default function Home() {
     return () => document.removeEventListener("pointerdown", dismiss);
   }, []);
   useEffect(() => { if (!session) { setMenuOpen(false); setAddBookOpen(false); setBookOptions(null); setPurgeItem(null); setBookDialog(null); } }, [session]);
+  useEffect(() => {
+    if (!session || view !== "library" || !("serviceWorker" in navigator)) return;
+    let active = true;
+    const urls = data.books.filter(b => statusFilter === "all" || b.reading_status === statusFilter).slice(0, 10)
+      .filter(b => !b.cover_photo && b.cover_id)
+      .map(b => `https://covers.openlibrary.org/b/id/${b.cover_id}-L.jpg?default=false`);
+    const warm = () => {
+      if (active) navigator.serviceWorker.controller?.postMessage({ type: "CACHE_LIBRARY_COVERS", urls });
+    };
+    navigator.serviceWorker.ready.then(warm).catch(() => {});
+    navigator.serviceWorker.addEventListener("controllerchange", warm);
+    return () => { active = false; navigator.serviceWorker.removeEventListener("controllerchange", warm); };
+  }, [session?.user.id, view, data.books, statusFilter]);
   const [selected, setSelected] = useState("");
   const [pdfBookId, setPdfBookId] = useState<string | null>(null);
   const [draftAtRisk, setDraftAtRisk] = useState(false);

@@ -132,3 +132,6 @@ O JSON de backup inclui `summaryVersions`, com identificação e livro remapeado
 ### Status de leitura e rascunhos duráveis
 Livros têm status Quero ler, Lendo, Concluído ou Pausado, alterável no caderno e filtrável na estante. Livros existentes e backups antigos começam em Quero ler. O backup preserva o status.
 Rascunhos agora usam armazenamento persistente deste navegador por conta e livro, recuperáveis após fechar a aba. Rascunhos antigos da sessão são migrados ao abrir o editor. Não sincronizam entre dispositivos e podem ser apagados ao limpar os dados do navegador. Sair explicitamente da conta continua pedindo confirmação e removendo seus rascunhos. Salvar ou descartar limpa o rascunho correspondente.
+
+### Cache das capas
+As dez primeiras posições da estante carregam suas capas prioritariamente. As capas públicas da Open Library nessas posições são pré-carregadas com duas requisições simultâneas e guardadas no navegador por até sete dias, com limite de dez imagens. A seleção acompanha o filtro da estante. Somente respostas de imagem válidas são persistidas; falhas não impedem o carregamento normal. Capas privadas enviadas, fotos, páginas autenticadas e APIs não entram neste cache. Isso não torna a biblioteca disponível offline.
